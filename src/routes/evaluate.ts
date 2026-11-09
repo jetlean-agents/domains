@@ -5,13 +5,17 @@ import { createEvaluationJob, getEvaluationJob, MAX_EVALUATE_DOMAINS } from "../
 import { getEvaluations } from "../db/queries.js";
 import { normalizeDomain, InvalidDomainError } from "../domain/normalize.js";
 
-function parseDomainsFromQuery(d: unknown): string[] {
-  if (typeof d !== "string") return [];
-  const raw = d.split(",").map((s) => s.trim()).filter(Boolean);
+/** Normalizes (punycode, lowercase) and de-duplicates a raw domain list; drops invalid entries. */
+export function normalizeDomainList(raw: string[]): string[] {
+  const seen = new Set<string>();
   const out: string[] = [];
   for (const r of raw) {
     try {
-      out.push(normalizeDomain(r).ascii);
+      const ascii = normalizeDomain(r).ascii;
+      if (!seen.has(ascii)) {
+        seen.add(ascii);
+        out.push(ascii);
+      }
     } catch (err) {
       if (!(err instanceof InvalidDomainError)) throw err;
     }
@@ -19,18 +23,25 @@ function parseDomainsFromQuery(d: unknown): string[] {
   return out;
 }
 
+function parseDomainsFromQuery(d: unknown): string[] {
+  if (typeof d !== "string") return [];
+  return normalizeDomainList(d.split(",").map((s) => s.trim()).filter(Boolean));
+}
+
 export function registerEvaluateRoutes(app: FastifyInstance): void {
   app.post("/api/v1/evaluate", { preHandler: requireAuth }, async (req, reply) => {
     const body = req.body as { domains?: unknown };
-    const domains = Array.isArray(body.domains)
+    const rawDomains = Array.isArray(body.domains)
       ? body.domains.filter((d): d is string => typeof d === "string")
       : [];
-    if (domains.length === 0) return reply.code(400).send({ error: "missing_domains" });
+    if (rawDomains.length === 0) return reply.code(400).send({ error: "missing_domains" });
+    const domains = normalizeDomainList(rawDomains);
+    if (domains.length === 0) return reply.code(400).send({ error: "no_valid_domains" });
     if (domains.length > MAX_EVALUATE_DOMAINS) {
       return reply.code(400).send({ error: "too_many_domains", max: MAX_EVALUATE_DOMAINS });
     }
     const job = await createEvaluationJob(pool, domains);
-    return reply.code(202).send({ job_id: job.id, status: job.status });
+    return reply.code(202).send({ job_id: job.id, status: job.status, domains });
   });
 
   app.get("/api/v1/evaluate/:id", { preHandler: requireAuth }, async (req, reply) => {

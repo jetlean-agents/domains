@@ -1,14 +1,29 @@
 import { request } from "undici";
 import { config } from "../config.js";
-import { MinIntervalQueue } from "./rate-queue.js";
-import type { RetryableError } from "../domain/rate-limit.js";
+import { MinIntervalQueue, getHeader, parseRetryAfterMs, type QueueError } from "./rate-queue.js";
 
 const COLLINFO_URL = "https://index.commoncrawl.org/collinfo.json";
 const COLLECTION_TTL_MS = 24 * 3600 * 1000;
 const PAGE_LIMIT = 1000;
 const USER_AGENT = "JetLeanDomains/1.0 (+https://domains.jetlean.com; internal domain evaluation tool)";
 
-export const commonCrawlQueue = new MinIntervalQueue(config.commonCrawl.minIntervalMs);
+export const commonCrawlQueue = new MinIntervalQueue(config.commonCrawl.minIntervalMs, "cc");
+
+function ccError(statusCode: number, headers: Record<string, string | string[] | undefined>, what: string): QueueError {
+  const err: QueueError = new Error(`Common Crawl ${statusCode} for ${what}`);
+  err.statusCode = statusCode;
+  if (statusCode === 429 || statusCode === 503) {
+    err.retryable = true;
+    err.retryAfterMs = parseRetryAfterMs(getHeader(headers, "retry-after"));
+  } else if (statusCode >= 500) {
+    err.retryable = true;
+  } else {
+    // Common Crawl's Index API legitimately uses 404 for "no captures matched" (handled by the
+    // caller before this); any other non-200 means the request itself was rejected.
+    err.retryable = false;
+  }
+  return err;
+}
 
 let collectionCache: { id: string; fetchedAt: number } | null = null;
 
@@ -22,7 +37,9 @@ async function latestCollectionId(): Promise<string> {
       headers: { "user-agent": USER_AGENT },
       signal: AbortSignal.timeout(config.commonCrawl.timeoutMs),
     });
-    if (res.statusCode >= 400) throw new Error(`Common Crawl collinfo HTTP ${res.statusCode}`);
+    if (res.statusCode !== 200) {
+      throw ccError(res.statusCode, res.headers as Record<string, string | string[] | undefined>, "collinfo");
+    }
     const body = (await res.body.json()) as Array<{ id: string }>;
     if (body.length === 0) throw new Error("Common Crawl collinfo returned no collections");
     return body[0].id;
@@ -55,17 +72,8 @@ export async function fetchCommonCrawlPresence(domain: string): Promise<CommonCr
       signal: AbortSignal.timeout(config.commonCrawl.timeoutMs),
     });
     if (res.statusCode === 404) return "";
-    if (res.statusCode === 429 || res.statusCode >= 500) {
-      const err: RetryableError = new Error(`Common Crawl index ${res.statusCode} for ${domain}`);
-      err.retryable = true;
-      throw err;
-    }
-    // Common Crawl's Index API legitimately uses 404 for "no captures matched" — any other
-    // non-200 means the request itself was rejected and must not be read as "zero pages".
     if (res.statusCode !== 200) {
-      const err: RetryableError = new Error(`Common Crawl index ${res.statusCode} for ${domain}`);
-      err.retryable = false;
-      throw err;
+      throw ccError(res.statusCode, res.headers as Record<string, string | string[] | undefined>, domain);
     }
     return res.body.text();
   });

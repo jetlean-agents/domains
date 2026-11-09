@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseCdxResponse, summarizeSnapshots, pickSampleSnapshots } from "../../src/evaluation/wayback.js";
+import {
+  parseCdxResponse,
+  summarizeSnapshots,
+  pickSampleSnapshots,
+  buildCdxUrl,
+  mergeCdxRows,
+} from "../../src/evaluation/wayback.js";
 
 const fixture = readFileSync(join(import.meta.dirname, "..", "fixtures", "wayback", "cdx-sample.json"), "utf8");
 
@@ -65,5 +71,53 @@ describe("pickSampleSnapshots", () => {
 
   it("returns an empty array for no rows", () => {
     expect(pickSampleSnapshots([], 4)).toEqual([]);
+  });
+});
+
+describe("buildCdxUrl", () => {
+  it("queries exactly one host, never matchType=domain (which pulls in every subdomain/path)", () => {
+    const url = buildCdxUrl("example.com");
+    expect(url).toContain("url=example.com");
+    expect(url).not.toContain("matchType=domain");
+  });
+
+  it("collapses by month (timestamp:6), not by content digest", () => {
+    const url = buildCdxUrl("example.com");
+    expect(url).toContain("collapse=timestamp:6");
+  });
+
+  it("URL-encodes the host", () => {
+    expect(buildCdxUrl("exämple.com")).toContain(encodeURIComponent("exämple.com"));
+  });
+});
+
+describe("mergeCdxRows", () => {
+  const row = (ts: string, original = "http://example.com/"): ReturnType<typeof parseCdxResponse>[number] => ({
+    timestamp: ts,
+    original,
+    statuscode: "200",
+  });
+
+  it("de-duplicates by (timestamp, original) across both lists", () => {
+    const apex = [row("20100101000000"), row("20150101000000")];
+    const www = [row("20150101000000"), row("20200101000000")];
+    const merged = mergeCdxRows(apex, www);
+    expect(merged.map((r) => r.timestamp)).toEqual(["20100101000000", "20150101000000", "20200101000000"]);
+  });
+
+  it("keeps rows with the same timestamp but a different original URL (different page)", () => {
+    const apex = [row("20100101000000", "http://example.com/")];
+    const www = [row("20100101000000", "http://www.example.com/")];
+    expect(mergeCdxRows(apex, www)).toHaveLength(2);
+  });
+
+  it("sorts the merged result oldest first", () => {
+    const apex = [row("20200101000000")];
+    const www = [row("20100101000000")];
+    expect(mergeCdxRows(apex, www).map((r) => r.timestamp)).toEqual(["20100101000000", "20200101000000"]);
+  });
+
+  it("handles two empty lists", () => {
+    expect(mergeCdxRows([], [])).toEqual([]);
   });
 });

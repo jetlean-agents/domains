@@ -1,7 +1,6 @@
 import { request } from "undici";
 import { config } from "../config.js";
-import { MinIntervalQueue } from "./rate-queue.js";
-import type { RetryableError } from "../domain/rate-limit.js";
+import { MinIntervalQueue, getHeader, parseRetryAfterMs, type QueueError } from "./rate-queue.js";
 
 const CDX_BASE = "https://web.archive.org/cdx/search/cdx";
 const SNAPSHOT_BASE = "https://web.archive.org/web";
@@ -9,7 +8,7 @@ const SNAPSHOT_BASE = "https://web.archive.org/web";
 // also lets them identify/throttle us specifically instead of lumping us in with generic bot traffic.
 const USER_AGENT = "JetLeanDomains/1.0 (+https://domains.jetlean.com; internal domain evaluation tool)";
 
-export const waybackQueue = new MinIntervalQueue(config.wayback.minIntervalMs);
+export const waybackQueue = new MinIntervalQueue(config.wayback.minIntervalMs, "wayback");
 
 export interface CdxRow {
   timestamp: string;
@@ -42,34 +41,83 @@ export function parseCdxResponse(raw: string): CdxRow[] {
   return rows;
 }
 
-/** Fetches the full CDX snapshot list for a domain, deduplicated by content digest, oldest first. */
-export async function fetchCdx(domain: string): Promise<CdxRow[]> {
-  const url =
-    `${CDX_BASE}?url=${encodeURIComponent(domain)}&matchType=domain&output=json` +
-    `&collapse=digest&filter=statuscode:200&fl=timestamp,original,statuscode&limit=10000`;
+/**
+ * Builds a CDX query for exactly one host (no `matchType=domain`, which pulls in every indexed
+ * URL of every subdomain — far too heavy for a domain like an old `.com`). `collapse=timestamp:6`
+ * keeps at most one capture per calendar month, which is plenty of resolution for a yearly sample.
+ */
+export function buildCdxUrl(host: string): string {
+  return (
+    `${CDX_BASE}?url=${encodeURIComponent(host)}&output=json` +
+    `&collapse=timestamp:6&filter=statuscode:200&fl=timestamp,original,statuscode&limit=10000`
+  );
+}
+
+/** Merges two CDX row lists, de-duplicated by (timestamp, original), sorted oldest first. */
+export function mergeCdxRows(a: CdxRow[], b: CdxRow[]): CdxRow[] {
+  const seen = new Set<string>();
+  const merged: CdxRow[] = [];
+  for (const row of [...a, ...b]) {
+    const key = `${row.timestamp}|${row.original}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(row);
+  }
+  merged.sort((x, y) => x.timestamp.localeCompare(y.timestamp));
+  return merged;
+}
+
+function cdxError(statusCode: number, headers: Record<string, string | string[] | undefined>, host: string): QueueError {
+  const err: QueueError = new Error(`Wayback CDX ${statusCode} for ${host}`);
+  err.statusCode = statusCode;
+  if (statusCode === 429 || statusCode === 503) {
+    err.retryable = true;
+    err.retryAfterMs = parseRetryAfterMs(getHeader(headers, "retry-after"));
+  } else if (statusCode >= 500) {
+    err.retryable = true;
+  } else {
+    // A real "no snapshots" result is always HTTP 200 (with an empty/header-only body) — any
+    // other 4xx means our request was rejected outright and must not be mistaken for "no_history".
+    err.retryable = false;
+  }
+  return err;
+}
+
+async function fetchCdxForHost(host: string): Promise<CdxRow[]> {
+  const url = buildCdxUrl(host);
   const raw = await waybackQueue.run(async () => {
     const res = await request(url, {
       method: "GET",
       headers: { "user-agent": USER_AGENT },
       signal: AbortSignal.timeout(config.wayback.timeoutMs),
     });
-    if (res.statusCode === 429 || res.statusCode >= 500) {
-      const err: RetryableError = new Error(`Wayback CDX ${res.statusCode} for ${domain}`);
-      err.retryable = true;
-      throw err;
-    }
-    // A real "no snapshots" result is always HTTP 200 (with an empty/header-only body) — any
-    // other 4xx means our request was rejected outright and must not be mistaken for "no_history".
     if (res.statusCode !== 200) {
-      const err: RetryableError = new Error(`Wayback CDX ${res.statusCode} for ${domain}`);
-      err.retryable = false;
-      throw err;
+      throw cdxError(res.statusCode, res.headers as Record<string, string | string[] | undefined>, host);
     }
     return res.body.text();
   });
-  const rows = parseCdxResponse(raw);
-  rows.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  return rows;
+  return parseCdxResponse(raw);
+}
+
+/**
+ * Fetches the CDX snapshot list for a domain: the bare host plus `www.<host>` (two cheap,
+ * host-scoped queries instead of one `matchType=domain` query over every subdomain/path), merged
+ * and de-duplicated. If the `www.` query fails after retries, falls back to apex-only history
+ * rather than losing an otherwise-successful result.
+ */
+export async function fetchCdx(domain: string): Promise<CdxRow[]> {
+  const apex = await fetchCdxForHost(domain);
+  if (domain.startsWith("www.")) return apex;
+  try {
+    const www = await fetchCdxForHost(`www.${domain}`);
+    return mergeCdxRows(apex, www);
+  } catch (err) {
+    console.warn(
+      `fetchCdx: www.${domain} query failed, using apex-only history:`,
+      err instanceof Error ? err.message : err,
+    );
+    return apex;
+  }
 }
 
 export interface WaybackSummary {
@@ -133,26 +181,24 @@ export function pickSampleSnapshots(rows: CdxRow[], sampleSize: number): CdxRow[
   return [...new Map(picked.map((r) => [r.timestamp, r])).values()];
 }
 
-/** Fetches one archived snapshot's raw (unmodified, `id_`) HTML content. */
+/** Fetches one archived snapshot's raw (unmodified, `id_`) HTML content; null if unavailable. */
 export async function fetchSnapshotContent(row: CdxRow): Promise<string | null> {
   const url = `${SNAPSHOT_BASE}/${row.timestamp}id_/${row.original}`;
-  return waybackQueue.run(async () => {
-    try {
+  try {
+    return await waybackQueue.run(async () => {
       const res = await request(url, {
         method: "GET",
         headers: { "user-agent": USER_AGENT },
         signal: AbortSignal.timeout(config.wayback.timeoutMs),
       });
-      if (res.statusCode === 429 || res.statusCode >= 500) {
-        const err: RetryableError = new Error(`Wayback snapshot ${res.statusCode} for ${row.original}`);
-        err.retryable = true;
-        throw err;
+      if (res.statusCode !== 200) {
+        throw cdxError(res.statusCode, res.headers as Record<string, string | string[] | undefined>, row.original);
       }
-      if (res.statusCode >= 400) return null;
-      return await res.body.text();
-    } catch (err) {
-      if ((err as RetryableError)?.retryable) throw err;
-      return null;
-    }
-  });
+      return res.body.text();
+    });
+  } catch {
+    // One missing sample degrades the analysis (fewer years sampled) but isn't fatal — the
+    // domain-level CDX list fetch above is what must succeed for the evaluation to proceed.
+    return null;
+  }
 }

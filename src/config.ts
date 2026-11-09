@@ -47,7 +47,7 @@ export const config = {
   csvImportCron: process.env.CSV_IMPORT_CRON ?? "",
   uaWatchCron: process.env.UA_WATCH_CRON ?? "",
   wayback: {
-    minIntervalMs: envInt("WAYBACK_MIN_INTERVAL_MS", 1500),
+    minIntervalMs: envInt("WAYBACK_MIN_INTERVAL_MS", 4000),
     sampleSize: envInt("WAYBACK_SAMPLE", 4),
     timeoutMs: envInt("WAYBACK_TIMEOUT_MS", 10_000),
   },
