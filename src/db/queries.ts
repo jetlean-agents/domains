@@ -135,9 +135,19 @@ export async function listDrops(pool: Pool, filter: DropsFilter): Promise<DropRo
   return rows;
 }
 
-export async function getCached(pool: Pool, domain: string): Promise<CheckResult | null> {
+export interface CachedCheckResult {
+  domain: string;
+  status: DomainStatus;
+  expires_at: string | null;
+  registrar: string | null;
+  /** Source the cached value was originally resolved from (dns/rdap/whois), not "cache". */
+  cachedSource: Exclude<Source, "cache">;
+  checked_at: string;
+}
+
+export async function getCached(pool: Pool, domain: string): Promise<CachedCheckResult | null> {
   const { rows } = await pool.query(
-    `SELECT domain, status, expires_at, registrar, checked_at
+    `SELECT domain, status, expires_at, registrar, source, checked_at
      FROM domain_cache WHERE domain = $1 AND cache_expires_at > now()`,
     [domain],
   );
@@ -148,7 +158,7 @@ export async function getCached(pool: Pool, domain: string): Promise<CheckResult
     status: row.status as DomainStatus,
     expires_at: row.expires_at ? new Date(row.expires_at).toISOString() : null,
     registrar: row.registrar,
-    source: "cache",
+    cachedSource: row.source as Exclude<Source, "cache">,
     checked_at: new Date(row.checked_at).toISOString(),
   };
 }
