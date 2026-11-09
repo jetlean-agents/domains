@@ -5,8 +5,20 @@ import { hasNsRecords } from "./dns.js";
 import { findRdapServers, queryRdap } from "./rdap.js";
 import { resolveWhoisServer, queryWhois } from "./whois-client.js";
 import { getWhoisParser } from "./parsers/index.js";
-import { getCached, upsertCache } from "../db/queries.js";
+import { getCached, upsertCache, type CachedCheckResult } from "../db/queries.js";
 import type { CheckResult, DomainStatus, Source } from "./types.js";
+
+/**
+ * A DNS-only cache hit (fast-path `source=dns`, no RDAP/whois lookup) is always `registered`
+ * with no `expires_at`. For a deep check (watchlist), that's not good enough to raise/clear an
+ * expiry warning, so a registered domain cached without `expires_at` must be treated as a cache
+ * miss and re-resolved via RDAP/whois, regardless of which source originally produced it.
+ */
+function isStaleForDeepCheck(cached: CachedCheckResult): boolean {
+  const isRegisteredLike =
+    cached.status === "registered" || cached.status === "pending_delete" || cached.status === "redemption";
+  return isRegisteredLike && cached.expires_at === null;
+}
 
 function ttlFor(status: DomainStatus): number {
   if (status === "registered" || status === "pending_delete" || status === "redemption") {
@@ -76,7 +88,9 @@ export async function checkDomain(
   const { ascii, publicSuffix } = normalized;
 
   const cached = await getCached(pool, ascii);
-  if (cached) return cached;
+  if (cached && !(opts.deep && isStaleForDeepCheck(cached))) {
+    return { ...cached, source: "cache" };
+  }
 
   if (!publicSuffix) {
     return {
