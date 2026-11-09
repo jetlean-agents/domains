@@ -1,7 +1,7 @@
 import type { Niche } from "./types.js";
 
 /** Keyword dictionaries (RU/UA/EN) used to guess a niche from Wayback-sampled page text. */
-export const NICHE_KEYWORDS: Record<Exclude<Niche, "none">, string[]> = {
+export const NICHE_KEYWORDS: Record<Exclude<Niche, "none" | "other">, string[]> = {
   auto: [
     "автозапчаст", "автосервис", "шины", "диски", "двигател", "коробка передач",
     "б/у запчаст", "авторазбор", "кпп", "автомоб", "СТО", "техосмотр",

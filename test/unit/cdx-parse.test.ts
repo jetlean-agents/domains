@@ -6,6 +6,7 @@ import {
   summarizeSnapshots,
   pickSampleSnapshots,
   buildCdxUrl,
+  buildCdxUrlForRange,
   mergeCdxRows,
 } from "../../src/evaluation/wayback.js";
 
@@ -88,6 +89,16 @@ describe("buildCdxUrl", () => {
 
   it("URL-encodes the host", () => {
     expect(buildCdxUrl("exämple.com")).toContain(encodeURIComponent("exämple.com"));
+  });
+});
+
+describe("buildCdxUrlForRange", () => {
+  it("scopes the same CDX query to a from/to year window, so each request stays cheap for the upstream", () => {
+    const url = buildCdxUrlForRange("yahoo.com", 2010, 2014);
+    expect(url).toContain("url=yahoo.com");
+    expect(url).toContain("from=2010");
+    expect(url).toContain("to=2014");
+    expect(url).toContain("collapse=timestamp:6");
   });
 });
 

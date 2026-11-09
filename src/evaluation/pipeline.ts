@@ -27,7 +27,7 @@ async function analyzeSamples(rows: ReturnType<typeof pickSampleSnapshots>): Pro
       timestamp: row.timestamp,
       year: Number.parseInt(row.timestamp.slice(0, 4), 10),
       lang: detectLanguage(text),
-      niche_hits: { ...countNicheHits(text), none: 0 },
+      niche_hits: countNicheHits(text),
       spam_hits: countSpamHits(text),
       parked: isParkedPage(text),
     });
@@ -48,10 +48,7 @@ export async function evaluateDomain(pool: Pool, rawDomain: string): Promise<Eva
   const sampleRows = pickSampleSnapshots(cdxRows, config.wayback.sampleSize);
   const samples = await analyzeSamples(sampleRows);
 
-  const niceHits = samples.map((s) => {
-    const { none, ...rest } = s.niche_hits;
-    return rest;
-  });
+  const niceHits = samples.map((s) => s.niche_hits);
   const publicSuffix = getPublicSuffix(domain) ?? normalized.publicSuffix;
   const { niche, confidence } = classifyNiche(niceHits, publicSuffix);
   const topicChange = detectTopicChange(niceHits);
@@ -72,7 +69,7 @@ export async function evaluateDomain(pool: Pool, rawDomain: string): Promise<Eva
 
   const label = getDomainWithoutSuffix(domain) ?? domain.split(".")[0];
   const yearsCovered = Object.keys(summary.snapshotsByYear).length;
-  const { score, breakdown } = computeScore({
+  const { score, breakdown, partial } = computeScore({
     ageYears: summary.ageYears,
     snapshotCount: summary.snapshotCount,
     yearsCovered,
@@ -98,6 +95,7 @@ export async function evaluateDomain(pool: Pool, rawDomain: string): Promise<Eva
     niche: niche as Niche,
     niche_confidence: confidence,
     flags,
+    partial,
     age_years: summary.ageYears,
     first_snapshot: summary.firstSnapshot,
     last_snapshot: summary.lastSnapshot,

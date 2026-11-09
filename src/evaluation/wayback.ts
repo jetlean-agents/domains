@@ -83,20 +83,63 @@ function cdxError(statusCode: number, headers: Record<string, string | string[] 
   return err;
 }
 
-async function fetchCdxForHost(host: string): Promise<CdxRow[]> {
-  const url = buildCdxUrl(host);
-  const raw = await waybackQueue.run(async () => {
-    const res = await request(url, {
-      method: "GET",
-      headers: { "user-agent": USER_AGENT },
-      signal: AbortSignal.timeout(config.wayback.timeoutMs),
-    });
-    if (res.statusCode !== 200) {
-      throw cdxError(res.statusCode, res.headers as Record<string, string | string[] | undefined>, host);
-    }
-    return res.body.text();
-  });
+/** True for an `AbortSignal.timeout()` rejection (Node/undici raise it as a DOMException-like Error). */
+function isTimeoutError(err: unknown): boolean {
+  return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+}
+
+/** A single CDX request scoped to a `[fromYear, toYear]` window, so each query stays cheap. */
+export function buildCdxUrlForRange(host: string, fromYear: number, toYear: number): string {
+  return `${buildCdxUrl(host)}&from=${fromYear}&to=${toYear}`;
+}
+
+async function fetchCdxUrl(url: string, host: string, opts?: { retries?: number }): Promise<CdxRow[]> {
+  const raw = await waybackQueue.run(
+    async () => {
+      const res = await request(url, {
+        method: "GET",
+        headers: { "user-agent": USER_AGENT },
+        signal: AbortSignal.timeout(config.wayback.timeoutMs),
+      });
+      if (res.statusCode !== 200) {
+        throw cdxError(res.statusCode, res.headers as Record<string, string | string[] | undefined>, host);
+      }
+      return res.body.text();
+    },
+    opts,
+  );
   return parseCdxResponse(raw);
+}
+
+const RANGE_CHUNK_YEARS = 5;
+// Wayback's earliest captures are from 1996; no point paginating further back than that.
+const WAYBACK_FIRST_YEAR = 1996;
+
+/**
+ * Fallback for hosts whose full-history CDX query times out (e.g. `yahoo.com`, decades of
+ * captures): splits the same query into small `[from, to]` year windows so each request stays
+ * cheap for the upstream to compute, instead of raising `WAYBACK_TIMEOUT_MS` for everyone.
+ */
+async function fetchCdxForHostByRanges(host: string): Promise<CdxRow[]> {
+  const currentYear = new Date().getUTCFullYear();
+  const rows: CdxRow[] = [];
+  for (let from = WAYBACK_FIRST_YEAR; from <= currentYear; from += RANGE_CHUNK_YEARS) {
+    const to = Math.min(from + RANGE_CHUNK_YEARS - 1, currentYear);
+    rows.push(...(await fetchCdxUrl(buildCdxUrlForRange(host, from, to), host)));
+  }
+  return rows;
+}
+
+async function fetchCdxForHost(host: string): Promise<CdxRow[]> {
+  try {
+    // Fail fast (no retry) on the full-range query: a timeout here is likely to time out again,
+    // and we'd rather spend that time on the ranged fallback below than on more full-range retries.
+    return await fetchCdxUrl(buildCdxUrl(host), host, { retries: 0 });
+  } catch (err) {
+    if (!isTimeoutError(err)) throw err;
+    console.warn(`fetchCdxForHost: full-range CDX query for ${host} timed out, retrying by year range`);
+    return fetchCdxForHostByRanges(host);
+  }
 }
 
 /**
