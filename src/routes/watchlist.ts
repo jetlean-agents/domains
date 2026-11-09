@@ -6,13 +6,12 @@ import {
   listWatchlistEntries,
   getWatchlistEntry,
   deleteWatchlistEntry,
-  setWatchlistAutoregSiteId,
   listWatchEvents,
 } from "../db/queries.js";
 import { normalizeDomain, InvalidDomainError } from "../domain/normalize.js";
 import { recheckWatchlistEntry } from "../watchlist/recheck.js";
 import { autoregEnabled } from "../watchlist/autoreg-client.js";
-import { takeToAutoreg } from "../watchlist/take.js";
+import { takeToAutoreg, TakeInProgressError } from "../watchlist/take.js";
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 50;
@@ -81,10 +80,12 @@ export function registerWatchlistRoutes(app: FastifyInstance): void {
     if (!entry) return reply.code(404).send({ error: "not_found" });
     if (!autoregEnabled()) return reply.code(400).send({ error: "autoreg_not_configured" });
     try {
-      const { siteId, created } = await takeToAutoreg(entry);
-      if (created) await setWatchlistAutoregSiteId(pool, id, siteId);
+      const { siteId, created } = await takeToAutoreg(pool, entry);
       return reply.send({ autoreg_site_id: siteId, created });
     } catch (err) {
+      if (err instanceof TakeInProgressError) {
+        return reply.code(409).send({ error: "take_in_progress" });
+      }
       if (err instanceof Error && err.message === "missing_niche") {
         return reply.code(400).send({ error: "missing_niche" });
       }

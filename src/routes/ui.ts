@@ -532,10 +532,16 @@ async function load() {
   });
   tbody.querySelectorAll('.take').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const res = await fetch('/api/v1/watchlist/' + btn.dataset.id + '/take', { method: 'POST' });
-      const data = await res.json();
-      el('status').textContent = res.ok ? 'Autoreg site: ' + data.autoreg_site_id : 'Ошибка: ' + (data.error ?? 'unknown');
-      await load();
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/v1/watchlist/' + btn.dataset.id + '/take', { method: 'POST' });
+        const data = await res.json();
+        el('status').textContent = res.ok ? 'Autoreg site: ' + data.autoreg_site_id : 'Ошибка: ' + (data.error ?? 'unknown');
+        await load();
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
   tbody.querySelectorAll('.remove').forEach((btn) => {

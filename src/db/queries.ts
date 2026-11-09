@@ -244,6 +244,7 @@ export interface WatchlistRow {
   next_check_at: string;
   expiry_warned_for_date: string | null;
   autoreg_site_id: string | null;
+  autoreg_take_started_at: string | null;
   created_at: string;
 }
 
@@ -318,29 +319,88 @@ export async function deleteWatchlistEntry(pool: Pool, id: string): Promise<bool
   return (rowCount ?? 0) > 0;
 }
 
-/** Entries due for a recheck right now; used by both the fast- and daily-interval schedulers. */
-export async function listDueWatchlistEntries(pool: Pool): Promise<WatchlistRow[]> {
-  const { rows } = await pool.query(`SELECT * FROM watchlist WHERE next_check_at <= now() ORDER BY next_check_at`);
+/**
+ * Atomically claims every watchlist entry currently due (`next_check_at <= now()`) by pushing
+ * their `next_check_at` out by `leaseSeconds` right away (`FOR UPDATE SKIP LOCKED` so two
+ * concurrent callers split the due set instead of both grabbing the same rows). Used by both the
+ * fast- and daily-interval schedulers, which otherwise could overlap on a slow batch. The lease
+ * is just a safety net for a crash mid-batch — on success `updateWatchlistAfterCheck` overwrites
+ * it with the real tier-based `next_check_at`.
+ */
+export async function claimDueWatchlistEntries(pool: Pool, leaseSeconds: number): Promise<WatchlistRow[]> {
+  const { rows } = await pool.query(
+    `UPDATE watchlist SET next_check_at = now() + ($1 || ' seconds')::interval
+     WHERE id IN (SELECT id FROM watchlist WHERE next_check_at <= now() FOR UPDATE SKIP LOCKED)
+     RETURNING *`,
+    [leaseSeconds],
+  );
   return rows;
 }
 
+/**
+ * Persists a recheck's result, but only if `status` still equals `prevStatus` — the condition
+ * that lets the caller (recheckWatchlistEntry) tell whether IT is the one that owns this
+ * transition. A second concurrent recheck of the same entry (an overlapping scheduler tick, or a
+ * manual `/check` racing the scheduler) loses this race, gets `false` back, and must not notify —
+ * otherwise one real transition would produce two Telegram messages. Returns whether this call won.
+ */
 export async function updateWatchlistAfterCheck(
   pool: Pool,
   id: string,
+  prevStatus: string,
   patch: { status: DomainStatus; expiresAt: string | null; nextCheckAt: string },
-): Promise<void> {
-  await pool.query(
-    `UPDATE watchlist SET status = $2, expires_at = $3, last_checked_at = now(), next_check_at = $4 WHERE id = $1`,
-    [id, patch.status, patch.expiresAt, patch.nextCheckAt],
+): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE watchlist SET status = $2, expires_at = $3, last_checked_at = now(), next_check_at = $4
+     WHERE id = $1 AND status = $5`,
+    [id, patch.status, patch.expiresAt, patch.nextCheckAt, prevStatus],
   );
+  return (rowCount ?? 0) > 0;
 }
 
-export async function setWatchlistExpiryWarned(pool: Pool, id: string, date: string): Promise<void> {
-  await pool.query(`UPDATE watchlist SET expiry_warned_for_date = $2 WHERE id = $1`, [id, date]);
+/**
+ * Marks the expiry warning sent for `date`, but only if `expiry_warned_for_date` still equals
+ * `prevWarnedForDate` — same race-ownership pattern as `updateWatchlistAfterCheck`, applied to
+ * the separate expiry-warning dedup key. Returns whether this call won (and so should notify).
+ */
+export async function setWatchlistExpiryWarned(
+  pool: Pool,
+  id: string,
+  prevWarnedForDate: string | null,
+  date: string,
+): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE watchlist SET expiry_warned_for_date = $3
+     WHERE id = $1 AND expiry_warned_for_date IS NOT DISTINCT FROM $2`,
+    [id, prevWarnedForDate, date],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
-export async function setWatchlistAutoregSiteId(pool: Pool, id: string, siteId: string): Promise<void> {
-  await pool.query(`UPDATE watchlist SET autoreg_site_id = $2 WHERE id = $1`, [id, siteId]);
+/**
+ * Claims the right to call Autoreg for this entry: succeeds only if no site exists yet and no
+ * other claim is currently active (or the previous claim's TTL has lapsed, e.g. after a crash
+ * mid-request). Must be called — and must succeed — *before* calling Autoreg, so a losing
+ * concurrent "взять в работу" click never reaches Autoreg and can't create a duplicate site.
+ */
+export async function claimWatchlistForAutoreg(pool: Pool, id: string, claimTtlSeconds: number): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE watchlist SET autoreg_take_started_at = now()
+     WHERE id = $1 AND autoreg_site_id IS NULL
+       AND (autoreg_take_started_at IS NULL OR autoreg_take_started_at < now() - ($2 || ' seconds')::interval)`,
+    [id, claimTtlSeconds],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Persists the created Autoreg site id; guarded by `autoreg_site_id IS NULL` as a second,
+ *  belt-and-suspenders idempotency check alongside the claim above. */
+export async function setWatchlistAutoregSiteId(pool: Pool, id: string, siteId: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE watchlist SET autoreg_site_id = $2 WHERE id = $1 AND autoreg_site_id IS NULL`,
+    [id, siteId],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 export interface WatchEventInsert {
