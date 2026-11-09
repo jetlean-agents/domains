@@ -45,7 +45,6 @@ export const config = {
     .map((u) => u.trim())
     .filter(Boolean),
   csvImportCron: process.env.CSV_IMPORT_CRON ?? "",
-  uaWatchCron: process.env.UA_WATCH_CRON ?? "",
   wayback: {
     minIntervalMs: envInt("WAYBACK_MIN_INTERVAL_MS", 4000),
     sampleSize: envInt("WAYBACK_SAMPLE", 4),
@@ -58,4 +57,16 @@ export const config = {
   evalCacheTtlSeconds: envInt("EVAL_CACHE_TTL", 30 * 24 * 3600),
   evalDailyLimit: envInt("EVAL_DAILY_LIMIT", 50),
   evalCron: process.env.EVAL_CRON ?? "",
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
+    chatId: process.env.TELEGRAM_CHAT_ID ?? "",
+  },
+  watchFastIntervalSeconds: envInt("WATCH_FAST_INTERVAL", 3600),
+  watchDailyAt: process.env.WATCH_DAILY_AT ?? "",
+  watchExpiryWarnDays: envInt("WATCH_EXPIRY_WARN_DAYS", 7),
+  watchWebhookUrl: process.env.WATCH_WEBHOOK_URL ?? "",
+  autoreg: {
+    apiUrl: process.env.AUTOREG_API_URL ?? "",
+    apiToken: process.env.AUTOREG_API_TOKEN ?? "",
+  },
 };

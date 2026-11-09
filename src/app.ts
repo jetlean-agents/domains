@@ -6,6 +6,7 @@ import { registerUiRoutes } from "./routes/ui.js";
 import { registerDropsRoutes } from "./routes/drops.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerEvaluateRoutes } from "./routes/evaluate.js";
+import { registerWatchlistRoutes } from "./routes/watchlist.js";
 
 export async function buildApp() {
   const app = Fastify({ logger: true });
@@ -21,5 +22,6 @@ export async function buildApp() {
   registerDropsRoutes(app);
   registerAdminRoutes(app);
   registerEvaluateRoutes(app);
+  registerWatchlistRoutes(app);
   return app;
 }

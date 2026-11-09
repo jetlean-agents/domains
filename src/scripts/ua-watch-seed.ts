@@ -45,7 +45,7 @@ async function main() {
 
   await runMigrations(pool);
   const inserted = await seedWatchlist(pool, domains);
-  console.log(`seeded ${inserted} new domain(s) into ua_watchlist (${domains.length} provided)`);
+  console.log(`seeded ${inserted} new domain(s) into watchlist (${domains.length} provided)`);
   await pool.end();
 }
 

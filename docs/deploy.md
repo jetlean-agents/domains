@@ -74,3 +74,13 @@ HTTP (без TLS), так что в dev-ENV нужно явно `COOKIE_SECURE=f
 
 Реальные креды CZDS (`CZDS_USERNAME`/`CZDS_PASSWORD`) ещё не выданы — до
 этого zone diff работает на локальных тестовых файлах из `ZONE_FILES_DIR`.
+
+### Этап 4 — вотчлист, Telegram, Autoreg
+
+Никаких новых volume/контейнеров — только новые ENV (`docs/env.md`,
+`TELEGRAM_*`/`WATCH_*`/`AUTOREG_*`). Без `TELEGRAM_BOT_TOKEN`+`TELEGRAM_CHAT_ID`
+уведомления просто не отправляются (события всё равно пишутся в журнал,
+видно в `/watchlist`), без `AUTOREG_API_URL`+`AUTOREG_API_TOKEN` кнопка
+«взять в работу» отключена с понятной ошибкой — ни то, ни другое не
+блокирует остальной функционал. `AUTOREG_API_TOKEN` — сервисный токен
+Autoreg (роль `service`, создаётся там же, не в этом репозитории).
