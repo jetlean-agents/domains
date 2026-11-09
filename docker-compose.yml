@@ -17,11 +17,23 @@ services:
       PER_HOST_CONCURRENCY: ${PER_HOST_CONCURRENCY:-2}
       PER_HOST_RPS: ${PER_HOST_RPS:-1}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      CZDS_USERNAME: ${CZDS_USERNAME:-}
+      CZDS_PASSWORD: ${CZDS_PASSWORD:-}
+      CZDS_ZONES: ${CZDS_ZONES:-}
+      ZONE_FILES_DIR: ${ZONE_FILES_DIR:-}
+      ZONE_DATA_DIR: /data/zones
+      ZONE_KEEP_SNAPSHOTS: ${ZONE_KEEP_SNAPSHOTS:-2}
+      ZONE_DIFF_CRON: ${ZONE_DIFF_CRON:-}
+      CSV_IMPORT_URLS: ${CSV_IMPORT_URLS:-}
+      CSV_IMPORT_CRON: ${CSV_IMPORT_CRON:-}
+      UA_WATCH_CRON: ${UA_WATCH_CRON:-}
     # No host port published: prod is reached only via Tailscale (host networking /
     # a Tailscale-bound proxy), stage via Dokploy/Traefik — both talk to the
     # container on the internal compose network, never 0.0.0.0 on the host.
     expose:
       - "3000"
+    volumes:
+      - zone-data:/data/zones
     mem_limit: 512m
     cpus: 0.5
 
@@ -39,3 +51,4 @@ services:
 
 volumes:
   db-data:
+  zone-data:

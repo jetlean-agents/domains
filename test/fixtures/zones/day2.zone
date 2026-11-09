@@ -1,0 +1,8 @@
+$ORIGIN test.
+$TTL 86400
+test.           3600 IN SOA a.test. hostmaster.test. 2 7200 3600 1209600 3600
+test.           3600 IN NS  a.test.
+alpha           3600 IN NS  ns1.alpha.test.
+alpha           3600 IN NS  ns2.alpha.test.
+beta.test.      3600 IN NS  ns1.beta.test.
+epsilon         3600 IN NS  ns1.epsilon.test.

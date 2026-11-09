@@ -57,3 +57,20 @@ HTTP (без TLS), так что в dev-ENV нужно явно `COOKIE_SECURE=f
    docker compose exec app npm run token:list
    docker compose exec app npm run token:revoke -- --name autoreg
    ```
+
+### Этап 2 — диск под снимки зон (`ZONE_DATA_DIR`)
+
+`docker-compose.yml` монтирует именованный volume `zone-data` на `/data/zones`
+внутри `app` (`ZONE_DATA_DIR=/data/zones`) — там лежат отсортированные
+снимки доменов по TLD (`<tld>/<run_date>.sorted.txt`), по умолчанию хранятся
+последние `ZONE_KEEP_SNAPSHOTS` (2) снимка на TLD.
+
+**Оценка места:** полный снимок `.com` в сжатом виде (как скачивает CZDS) —
+примерно 25 ГБ на снимок; с 2 снимками и накладными расходами несжатого
+текстового снимка доменов нужно больше — для prod на нескольких TLD
+(`.com`, `.net`, `.org` и др.) рекомендован сервер с диском от 256 ГБ
+(Netcup-инстанс, который уже выделен под JetLean Domains). На stage/dev —
+только тестовые зоны (`ZONE_FILES_DIR`), места нужно минимум.
+
+Реальные креды CZDS (`CZDS_USERNAME`/`CZDS_PASSWORD`) ещё не выданы — до
+этого zone diff работает на локальных тестовых файлах из `ZONE_FILES_DIR`.

@@ -7,11 +7,17 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function safeEqual(a: string, b: string): boolean {
+export function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a, "hex");
   const bufB = Buffer.from(b, "hex");
   if (bufA.length !== bufB.length) return false;
   return timingSafeEqual(bufA, bufB);
+}
+
+/** Verifies a bearer token is exactly the ADMIN_TOKEN bootstrap credential (never a DB service token). */
+export function verifyAdminToken(token: string): boolean {
+  if (!token || !config.adminToken) return false;
+  return safeEqual(hashToken(token), hashToken(config.adminToken));
 }
 
 /** Verifies a bearer token against the admin bootstrap token (ENV) and DB-stored service tokens. */

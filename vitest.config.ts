@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ["test/unit/**/*.test.ts"],
     environment: "node",
+    setupFiles: ["./test/setup-env.ts"],
     poolOptions: {
       forks: { minForks: 1 },
     },

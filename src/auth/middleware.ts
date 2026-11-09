@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { pool } from "../db/client.js";
-import { verifyToken } from "./tokens.js";
+import { verifyToken, verifyAdminToken } from "./tokens.js";
 
 function extractToken(req: FastifyRequest): string | null {
   const auth = req.headers.authorization;
@@ -13,6 +13,15 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
   const token = extractToken(req);
   const ok = token ? await verifyToken(pool, token) : false;
   if (!ok) {
+    reply.code(401).send({ error: "unauthorized" });
+  }
+}
+
+/** Admin-only routes: requires the bootstrap ADMIN_TOKEN specifically, never a DB-stored service token. */
+export async function requireAdminToken(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const auth = req.headers.authorization;
+  const token = auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
+  if (!verifyAdminToken(token)) {
     reply.code(401).send({ error: "unauthorized" });
   }
 }
