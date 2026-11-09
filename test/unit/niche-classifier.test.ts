@@ -93,6 +93,35 @@ describe("countNicheHits / classifyNiche on saved snapshot fixtures", () => {
     expect(confidence).toBeLessThanOrEqual(0.3);
     expect(confidence).toBeLessThan(1);
   });
+
+  it("trusts a single real niche hit as news when it is the only sample that actually classified (FACT-343: salon.com-style long-history .com site)", () => {
+    // salon.com has 324 Wayback snapshots, but with WAYBACK_SAMPLE sampling only a handful get
+    // fetched, and most of those can fail to fetch or carry no matchable text at all. The fixed
+    // MIN_NICHE_HITS=2 used to force this to "other" even though the lone classified sample's
+    // one real "news" hit is unambiguous (not tied with anything else, even after the "com" ->
+    // deals_us zone prior is added in).
+    const newsHit = { auto: 0, energy: 0, news: 1, deals_us: 0 };
+    const { niche, confidence } = classifyNiche([newsHit], "com");
+    expect(niche).toBe("news");
+    expect(confidence).toBeGreaterThan(0);
+  });
+
+  it("still requires the full hit bar when every sample was fetched but none carried any niche signal (prior alone can't manufacture confidence)", () => {
+    // A domain with Wayback history but genuinely content-free/off-niche pages (distinct from
+    // the zero-samples/no-history case above) must not get a confident niche just because the
+    // "com" zone prior nudges deals_us above zero.
+    const blankHit = { auto: 0, energy: 0, news: 0, deals_us: 0 };
+    const { niche } = classifyNiche([blankHit, blankHit], "com");
+    expect(niche).toBe("other");
+  });
+
+  it("still falls back to other for a domain without real history (e.g. a fresh/random-looking domain) even with the scaled threshold", () => {
+    // AC regression: xqskvbfnssufblwppnclnn.com-style domain with no usable Wayback content
+    // must stay unconfident (<=0.3), same as before this threshold change.
+    const { niche, confidence } = classifyNiche([], "io");
+    expect(niche).toBe("none");
+    expect(confidence).toBe(0);
+  });
 });
 
 describe("countSpamHits / isParkedPage", () => {
