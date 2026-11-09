@@ -64,12 +64,19 @@ export interface NicheClassification {
   confidence: number;
 }
 
-/** Minimum raw (post-prior) hit count required to trust a niche instead of calling it "other". */
+/** Cap on the raw (post-prior) hit count required to trust a niche instead of calling it "other". */
 const MIN_NICHE_HITS = 2;
 /** Minimum share of the winning niche among all hits required to trust it instead of "other". */
 const MIN_NICHE_CONFIDENCE = 0.5;
 /** Cap applied when the guess rests on the zone prior alone, with no sampled page content at all. */
 const NO_CONTENT_CONFIDENCE_CAP = 0.3;
+
+/** Counts samples whose own (pre-prior) hits matched at least one niche keyword. */
+function countClassifiedSamples(
+  sampleHits: Array<Record<Exclude<Niche, "none" | "other">, number>>,
+): number {
+  return sampleHits.filter((hits) => Object.values(hits).some((v) => v > 0)).length;
+}
 
 /**
  * Aggregates per-sample niche hit counts plus a small zone-based prior (e.g. .com.ua -> auto/energy/news)
@@ -106,7 +113,17 @@ export function classifyNiche(
   if (sampleHits.length === 0) {
     return { niche: bestNiche, confidence: Math.min(confidence, NO_CONTENT_CONFIDENCE_CAP) };
   }
-  if (bestScore < MIN_NICHE_HITS || confidence < MIN_NICHE_CONFIDENCE) {
+
+  // A fixed MIN_NICHE_HITS=2 unfairly punishes a long-history site where only one sampled
+  // snapshot actually matched niche keywords (the rest failed to fetch or carried none): one
+  // real hit is the strongest signal that single classified sample could ever produce. Only
+  // relax the bar when some sample actually carried content signal — a domain whose fetched
+  // samples matched nothing at all still needs the full bar, so the zone prior alone (e.g. the
+  // "com" -> deals_us prior) can never manufacture a confident niche on its own.
+  const classifiedSamples = countClassifiedSamples(sampleHits);
+  const requiredHits = classifiedSamples > 0 ? Math.max(1, Math.min(MIN_NICHE_HITS, classifiedSamples)) : MIN_NICHE_HITS;
+
+  if (bestScore < requiredHits || confidence < MIN_NICHE_CONFIDENCE) {
     return { niche: "other", confidence };
   }
   return { niche: bestNiche, confidence };
