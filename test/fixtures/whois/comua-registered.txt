@@ -1,0 +1,12 @@
+% Request from 100.94.103.26
+% This is the Ukrainian Whois query server #TEST.
+domain:           example.com.ua
+registrar:        hostmaster.ua
+status:           clientTransferProhibited
+status:           ok
+created:          2010-05-20 00:00:00+03
+modified:         2026-04-15 00:00:00+03
+expires:          2027-05-20 00:00:00+03
+nserver:          ns1.example.com.ua
+nserver:          ns2.example.com.ua
+source:           UAEPP

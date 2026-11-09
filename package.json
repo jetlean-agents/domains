@@ -1,0 +1,28 @@
+{
+  "name": "domains",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json && cp -r src/db/migrations dist/db/migrations",
+    "start": "node dist/index.js",
+    "test": "vitest run --maxWorkers=2",
+    "token:create": "tsx scripts/token-create.ts"
+  },
+  "dependencies": {
+    "fastify": "^5.1.0",
+    "@fastify/cookie": "^9.4.0",
+    "pg": "^8.13.1",
+    "tldts": "^6.1.65",
+    "undici": "^7.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
