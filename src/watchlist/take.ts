@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { createAutoregSite } from "./autoreg-client.js";
+import { resolveAutoregNicheSlug } from "./niche-mapping.js";
 import { claimWatchlistForAutoreg, setWatchlistAutoregSiteId } from "../db/queries.js";
 
 export interface TakeableEntry {
@@ -41,11 +42,14 @@ export async function takeToAutoreg(pool: Pool, entry: TakeableEntry): Promise<T
   if (!entry.niche) {
     throw new Error("missing_niche");
   }
+  // Resolved before claiming the row: a niche with no Autoreg mapping (e.g. "other") would
+  // never succeed, so there's no point holding the claim for CLAIM_TTL_SECONDS while it fails.
+  const nicheSlug = resolveAutoregNicheSlug(entry.niche);
   const claimed = await claimWatchlistForAutoreg(pool, entry.id, CLAIM_TTL_SECONDS);
   if (!claimed) {
     throw new TakeInProgressError();
   }
-  const siteId = await createAutoregSite(entry.domain, entry.niche, entry.desired_action);
+  const siteId = await createAutoregSite(entry.domain, nicheSlug, entry.desired_action);
   await setWatchlistAutoregSiteId(pool, entry.id, siteId);
   return { siteId, created: true };
 }
