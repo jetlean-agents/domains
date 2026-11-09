@@ -12,6 +12,7 @@ import { normalizeDomain, InvalidDomainError } from "../domain/normalize.js";
 import { recheckWatchlistEntry } from "../watchlist/recheck.js";
 import { autoregEnabled } from "../watchlist/autoreg-client.js";
 import { takeToAutoreg, TakeInProgressError } from "../watchlist/take.js";
+import { MissingNicheMappingError } from "../watchlist/niche-mapping.js";
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 50;
@@ -88,6 +89,9 @@ export function registerWatchlistRoutes(app: FastifyInstance): void {
       }
       if (err instanceof Error && err.message === "missing_niche") {
         return reply.code(400).send({ error: "missing_niche" });
+      }
+      if (err instanceof MissingNicheMappingError) {
+        return reply.code(400).send({ error: "missing_niche_mapping" });
       }
       return reply.code(502).send({
         error: "autoreg_request_failed",

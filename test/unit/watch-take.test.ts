@@ -57,6 +57,29 @@ describe("takeToAutoreg", () => {
     expect(queries.claimWatchlistForAutoreg).not.toHaveBeenCalled();
   });
 
+  it("rejects with MissingNicheMappingError for a niche with no Autoreg slug, without claiming the row", async () => {
+    const { takeToAutoreg } = await import("../../src/watchlist/take.js");
+    const { MissingNicheMappingError } = await import("../../src/watchlist/niche-mapping.js");
+    const queries = await import("../../src/db/queries.js");
+
+    const mockAgent = new MockAgent();
+    mockAgent.disableNetConnect();
+    setGlobalDispatcher(mockAgent);
+    // No interceptors registered: a real Autoreg call would throw, proving none was made.
+
+    row = { autoreg_site_id: null, claimedAt: null };
+    await expect(
+      takeToAutoreg({} as any, {
+        id: "e1",
+        domain: "example.com",
+        niche: "deals_us",
+        desired_action: "take",
+        autoreg_site_id: null,
+      }),
+    ).rejects.toBeInstanceOf(MissingNicheMappingError);
+    expect(queries.claimWatchlistForAutoreg).not.toHaveBeenCalled();
+  });
+
   it("creates a site when none exists yet", async () => {
     process.env.AUTOREG_API_URL = "https://autoreg.example";
     process.env.AUTOREG_API_TOKEN = "secret-token";
