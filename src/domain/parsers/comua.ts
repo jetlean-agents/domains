@@ -1,7 +1,7 @@
 import type { DomainStatus } from "../types.js";
 import type { WhoisParseResult } from "./types.js";
 
-const NOT_FOUND_RE = /No entries found for domain|status:\s*available/i;
+const NOT_FOUND_RE = /No entries found for|status:\s*available/i;
 
 const STATUS_MAP: Array<[RegExp, DomainStatus]> = [
   [/pending-delete/i, "pending_delete"],
@@ -27,8 +27,10 @@ export function parseComUaWhois(raw: string): WhoisParseResult {
   const expiryMatch = raw.match(/^expires:\s*(.+)$/im);
   const expiresAt = expiryMatch ? normalizeDate(expiryMatch[1].trim()) : null;
 
+  const registrarSection = raw.split(/^%\s*Registrar:\s*$/im)[1];
+  const orgMatch = registrarSection?.match(/^organization:\s*(.+)$/im);
   const registrarMatch = raw.match(/^registrar:\s*(.+)$/im);
-  const registrar = registrarMatch ? registrarMatch[1].trim() : null;
+  const registrar = orgMatch?.[1].trim() ?? registrarMatch?.[1].trim() ?? null;
 
   return { status, expiresAt, registrar };
 }

@@ -1,12 +1,25 @@
 % Request from 100.94.103.26
 % This is the Ukrainian Whois query server #TEST.
+% The Whois is subject to Terms of use
+% See https://hostmaster.ua/services/
+
 domain:           example.com.ua
-registrar:        hostmaster.ua
+dom-public:       NO
+mnt-by:           ua.markmonitor
+nserver:          ns1.example.com
+nserver:          ns2.example.com
 status:           clientTransferProhibited
 status:           ok
 created:          2010-05-20 00:00:00+03
 modified:         2026-04-15 00:00:00+03
 expires:          2027-05-20 00:00:00+03
-nserver:          ns1.example.com.ua
-nserver:          ns2.example.com.ua
 source:           UAEPP
+
+% Registrar:
+% ==========
+registrar:        ua.markmonitor
+organization:     MarkMonitor Inc.
+organization-loc: MarkMonitor Inc.
+source:           UAEPP
+
+% Query time:     2 msec

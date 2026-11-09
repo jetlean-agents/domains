@@ -24,7 +24,7 @@ describe("whois parsers", () => {
   it("parses a registered .com.ua domain", () => {
     const result = getWhoisParser("com.ua")(fixture("comua-registered.txt"));
     expect(result.status).toBe("registered");
-    expect(result.registrar).toBe("hostmaster.ua");
+    expect(result.registrar).toBe("MarkMonitor Inc.");
     expect(result.expiresAt).toMatch(/^2027-05-(19|20)/);
   });
 

@@ -12,10 +12,10 @@ export function registerUiRoutes(app: FastifyInstance): void {
     const token = body.token ?? "";
     const ok = await verifyToken(pool, token);
     if (!ok) {
-      return reply.code(401).type("text/html").send(LOGIN_HTML.replace("<!--ERROR-->", ERROR_HTML));
+      return reply.code(401).send({ error: "invalid_token" });
     }
     reply.setCookie("token", token, { path: "/", httpOnly: true, sameSite: "strict" });
-    return reply.redirect("/");
+    return reply.send({ ok: true });
   });
 
   app.get("/", async (req, reply) => {
@@ -25,8 +25,6 @@ export function registerUiRoutes(app: FastifyInstance): void {
     reply.type("text/html").send(APP_HTML);
   });
 }
-
-const ERROR_HTML = `<p class="error">Неверный токен</p>`;
 
 const LOGIN_HTML = `<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><title>JetLean Domains — вход</title>
@@ -38,12 +36,27 @@ const LOGIN_HTML = `<!doctype html>
   .error { color: #ff6b6b; }
 </style></head>
 <body>
-<form method="post" action="/login">
+<form id="login-form">
   <h2>JetLean Domains</h2>
-  <!--ERROR-->
   <input type="password" name="token" placeholder="Service token" required autofocus>
   <button type="submit">Войти</button>
 </form>
+<script>
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const token = e.target.elements.token.value;
+  const res = await fetch('/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (res.ok) {
+    location.href = '/';
+  } else {
+    document.querySelector('form').insertAdjacentHTML('afterbegin', '<p class="error">Неверный токен</p>');
+  }
+});
+</script>
 </body></html>`;
 
 const APP_HTML = `<!doctype html>
@@ -51,7 +64,8 @@ const APP_HTML = `<!doctype html>
 <style>
   body { font-family: system-ui, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
   header { padding: 1rem 2rem; border-bottom: 1px solid #222; }
-  main { padding: 1rem 2rem; max-width: 960px; }
+  main { padding: 1rem; max-width: 960px; box-sizing: border-box; }
+  @media (min-width: 640px) { main { padding: 1rem 2rem; } }
   textarea { width: 100%; min-height: 120px; background: #1a1d24; color: #fff; border: 1px solid #333; border-radius: 4px; padding: .6rem; box-sizing: border-box; font-family: monospace; }
   button { padding: .6rem 1.2rem; border-radius: 4px; border: none; background: #4f7cff; color: #fff; cursor: pointer; margin-top: .6rem; }
   table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
@@ -70,10 +84,12 @@ const APP_HTML = `<!doctype html>
   <br>
   <button id="check">Проверить</button>
   <span id="status"></span>
+  <div style="overflow-x: auto;">
   <table id="results" hidden>
     <thead><tr><th>Домен</th><th>Статус</th><th>До</th><th>Регистратор</th><th>Источник</th></tr></thead>
     <tbody></tbody>
   </table>
+  </div>
 </main>
 <script>
 const el = (id) => document.getElementById(id);

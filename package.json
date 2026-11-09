@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "fastify": "^5.1.0",
-    "@fastify/cookie": "^9.4.0",
+    "@fastify/cookie": "^11.0.1",
     "pg": "^8.13.1",
     "tldts": "^6.1.65",
     "undici": "^7.1.1"
