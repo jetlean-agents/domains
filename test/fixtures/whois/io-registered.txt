@@ -1,0 +1,13 @@
+Domain Name: EXAMPLE.IO
+Registry Domain ID: D503300000040421831-LRMS
+Registrar WHOIS Server: whois.nic.io
+Registrar URL: https://www.nic.io
+Updated Date: 2026-01-10T12:00:00Z
+Creation Date: 2016-02-20T00:00:00Z
+Registry Expiry Date: 2027-02-20T00:00:00Z
+Registrar: Identity Digital Inc.
+Registrar IANA ID: 1712
+Domain Status: clientTransferProhibited https://icann.org/epp#clientTransferProhibited
+Name Server: NS1.EXAMPLE.IO
+Name Server: NS2.EXAMPLE.IO
+DNSSEC: unsigned

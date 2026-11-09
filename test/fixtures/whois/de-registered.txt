@@ -1,0 +1,8 @@
+Domain: example.de
+Nserver: ns1.example.de
+Nserver: ns2.example.de
+Status: connect
+Changed: 2026-03-01T10:00:00+01:00
+
+[Zone-C]
+Type: ORG

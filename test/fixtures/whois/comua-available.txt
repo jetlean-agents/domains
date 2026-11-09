@@ -1,0 +1,8 @@
+% Request from 100.94.103.26
+% This is the Ukrainian Whois query server #TEST.
+% The Whois is subject to Terms of use
+% See https://hostmaster.ua/services/
+
+% No entries found for thiszzqqnotregisteredxyz123.com.ua
+
+% Query time:     2 msec
