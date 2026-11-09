@@ -136,3 +136,48 @@ CSV-провайдера (ExpiredDomains/GoDaddy/Dynadot + generic) и деду�
 Оценка доменов (Wayback/Common Crawl), вотчлист с уведомлениями в Telegram,
 интеграция с Autoreg — следующие этапы. Реальные CZDS-креды пока не выданы —
 zone diff работает на тестовых файлах (`ZONE_FILES_DIR`).
+
+## Этап 3 — оценка домена (Wayback, Common Crawl, балл и ниша)
+
+История домена (Wayback CDX + выборка снимков по годам, язык/тематика/спам
+по ключевым словам) и дешёвая оценка присутствия в вебе (Common Crawl Index
+API — честно не претендует на точные backlinks, см.
+[`docs/evaluation.md`](docs/evaluation.md) про ограничения) сводятся в балл
+0–100 с разбивкой и нишу `auto | energy | news | deals_us | none`. Плюс хвост
+этапа 2: имя сервисного токена снова можно использовать после `revoke`
+(уникальность — только среди активных токенов).
+
+### API
+
+- `POST /api/v1/evaluate` — `{ "domains": [...] }` (до 20), асинхронно:
+  создаёт job, оценка идёт в фоне. Ответ `202 { job_id, status }`.
+- `GET /api/v1/evaluate/:id` — статус и результаты job.
+- `GET /api/v1/evaluations?domain=a.com,b.com` — уже сохранённые оценки из БД,
+  без новых запросов к Wayback/Common Crawl.
+- `GET /api/v1/drops` — новые фильтры `niche=`, `min_score=`, `min_age=` и
+  `sort=score`.
+- UI: колонки «Балл» / «Ниша» / «Возраст» и те же фильтры на `/drops`,
+  кнопка «Оценить» там же; страница `/domains/:domain` — разбивка балла,
+  флаги (`spam`, `topic_change`, `parked`, `no_history`), ссылки на первый и
+  последний снимок Wayback.
+- Фоновая автооценка новых дропов по cron (`EVAL_CRON`), с лимитом
+  `EVAL_DAILY_LIMIT` свежих оценок в сутки.
+
+Новые переменные окружения — см. [`docs/env.md`](docs/env.md)
+(`WAYBACK_*`, `CC_*`, `EVAL_*`). Формула балла, словари ниш/спама и честные
+ограничения оценки ссылок — [`docs/evaluation.md`](docs/evaluation.md).
+
+### Тесты этапа 3
+
+Формула балла (`computeScore`/`detectFlags`) и классификатор ниш/спама/парковки
+на фикстурах сохранённых HTML-снимков (`test/fixtures/wayback/*.html`, по
+странице на каждую нишу + спам + parked), парсинг Wayback CDX-ответа на
+фикстуре, глобальная очередь с минимальным интервалом (`MinIntervalQueue`) —
+конкурентность и ретраи, фильтры `niche`/`min_score`/`min_age` для `/drops`.
+Внешние сервисы (Wayback, Common Crawl) в тестах не вызываются — тестируются
+только чистые функции разбора/классификации/подсчёта балла.
+
+### Scope этапа 3 / не входит
+
+Платные SEO-API (Ahrefs, Majestic и т.п.), вотчлист и уведомления в Telegram,
+интеграция с Autoreg — следующий этап.

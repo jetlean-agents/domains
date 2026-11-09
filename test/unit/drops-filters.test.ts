@@ -37,4 +37,22 @@ describe("buildDropsWhere", () => {
     expect(where).toBe("WHERE tld = $1");
     expect(params).toEqual(["ua"]);
   });
+
+  it("supports the stage-3 evaluation filters (niche, min_score, min_age) unqualified", () => {
+    const { where, params } = buildDropsWhere({
+      niche: "auto",
+      minScore: 60,
+      minAge: 5,
+      limit: 50,
+      offset: 0,
+    });
+    expect(where).toBe("WHERE niche = $1 AND score >= $2 AND age_years >= $3");
+    expect(params).toEqual(["auto", 60, 5]);
+  });
+
+  it("combines drops filters and evaluation filters in one WHERE clause", () => {
+    const { where, params } = buildDropsWhere({ tld: "com", niche: "deals_us", minScore: 40, limit: 50, offset: 0 });
+    expect(where).toBe("WHERE tld = $1 AND niche = $2 AND score >= $3");
+    expect(params).toEqual(["com", "deals_us", 40]);
+  });
 });

@@ -4,6 +4,9 @@ import { requireAuth } from "../auth/middleware.js";
 import { listDrops, type DropsFilter, type DropRow } from "../db/queries.js";
 import { checkDomain } from "../domain/pipeline.js";
 import { importCsv } from "../csvimport/import.js";
+import type { Niche } from "../evaluation/types.js";
+
+const VALID_NICHES: Niche[] = ["auto", "energy", "news", "deals_us", "none"];
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 50;
@@ -21,6 +24,13 @@ function parseFilter(query: Record<string, unknown>): DropsFilter {
     maxLen: query.max_len ? Number.parseInt(String(query.max_len), 10) : undefined,
     noDigits: query.no_digits === "1",
     noHyphens: query.no_hyphens === "1",
+    niche:
+      typeof query.niche === "string" && (VALID_NICHES as string[]).includes(query.niche)
+        ? (query.niche as Niche)
+        : undefined,
+    minScore: query.min_score ? Number.parseInt(String(query.min_score), 10) : undefined,
+    minAge: query.min_age ? Number.parseFloat(String(query.min_age)) : undefined,
+    sortByScore: query.sort === "score",
     limit,
     // Pagination is simple offset-based: `cursor` is just the previous offset. A
     // true keyset cursor (dropped_at,id) would survive concurrent inserts better,
@@ -58,7 +68,7 @@ export function registerDropsRoutes(app: FastifyInstance): void {
     const query = req.query as Record<string, unknown>;
     const filter = parseFilter({ ...query, limit: query.limit ?? MAX_LIMIT });
     const rows = await listDrops(pool, filter);
-    const header = toCsvRow(["domain", "tld", "source", "dropped_at", "created_at"]);
+    const header = toCsvRow(["domain", "tld", "source", "dropped_at", "created_at", "score", "niche", "age_years"]);
     const lines = rows.map((r) =>
       toCsvRow([
         r.domain,
@@ -66,6 +76,9 @@ export function registerDropsRoutes(app: FastifyInstance): void {
         r.source,
         new Date(r.dropped_at).toISOString().slice(0, 10),
         new Date(r.created_at).toISOString(),
+        r.score != null ? String(r.score) : "",
+        r.niche ?? "",
+        r.age_years != null ? String(r.age_years) : "",
       ]),
     );
     reply.header("content-type", "text/csv; charset=utf-8");

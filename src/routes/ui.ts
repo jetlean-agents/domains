@@ -44,6 +44,13 @@ export function registerUiRoutes(app: FastifyInstance): void {
     if (!ok) return reply.redirect("/login");
     reply.type("text/html").send(ADMIN_TOKENS_HTML);
   });
+
+  app.get("/domains/:domain", async (req, reply) => {
+    const token = (req.cookies as Record<string, string> | undefined)?.token ?? "";
+    const ok = await verifyToken(pool, token);
+    if (!ok) return reply.redirect("/login");
+    reply.type("text/html").send(DOMAIN_HTML);
+  });
 }
 
 const LOGIN_HTML = `<!doctype html>
@@ -172,17 +179,22 @@ const DROPS_HTML = `<!doctype html>
     <input id="f-maxlen" type="number" placeholder="макс. длина" style="width:7rem">
     <label><input id="f-nodigits" type="checkbox"> без цифр</label>
     <label><input id="f-nohyphens" type="checkbox"> без дефисов</label>
+    <select id="f-niche"><option value="">Ниша (любая)</option><option value="auto">auto</option><option value="energy">energy</option><option value="news">news</option><option value="deals_us">deals_us</option><option value="none">none</option></select>
+    <input id="f-minscore" type="number" placeholder="мин. балл" style="width:7rem">
+    <input id="f-minage" type="number" placeholder="мин. возраст (лет)" style="width:9rem">
+    <label><input id="f-sortscore" type="checkbox"> сортировать по баллу</label>
     <button id="apply">Фильтровать</button>
     <a href="#" id="export">Экспорт CSV</a>
   </div>
   <div class="toolbar">
     <button id="check">Проверить доступность (выбранные)</button>
+    <button id="evaluate">Оценить (выбранные)</button>
     <input id="csv-file" type="file" accept=".csv">
     <button id="upload">Загрузить CSV</button>
     <span id="status"></span>
   </div>
   <table id="results">
-    <thead><tr><th><input id="select-all" type="checkbox"></th><th>Домен</th><th>TLD</th><th>Источник</th><th>Дата дропа</th><th>Статус</th></tr></thead>
+    <thead><tr><th><input id="select-all" type="checkbox"></th><th>Домен</th><th>TLD</th><th>Источник</th><th>Дата дропа</th><th>Статус</th><th>Балл</th><th>Ниша</th><th>Возраст</th></tr></thead>
     <tbody></tbody>
   </table>
 </main>
@@ -198,6 +210,10 @@ function query() {
   if (el('f-maxlen').value) p.set('max_len', el('f-maxlen').value);
   if (el('f-nodigits').checked) p.set('no_digits', '1');
   if (el('f-nohyphens').checked) p.set('no_hyphens', '1');
+  if (el('f-niche').value) p.set('niche', el('f-niche').value);
+  if (el('f-minscore').value) p.set('min_score', el('f-minscore').value);
+  if (el('f-minage').value) p.set('min_age', el('f-minage').value);
+  if (el('f-sortscore').checked) p.set('sort', 'score');
   return p;
 }
 async function load() {
@@ -209,13 +225,25 @@ async function load() {
   for (const r of data.results ?? []) {
     const tr = document.createElement('tr');
     tr.innerHTML = \`<td><input type="checkbox" class="row-select" data-domain="\${r.domain}"></td>
-      <td>\${r.domain}</td><td>\${r.tld}</td><td>\${r.source}</td>
+      <td><a href="/domains/\${r.domain}">\${r.domain}</a></td><td>\${r.tld}</td><td>\${r.source}</td>
       <td>\${new Date(r.dropped_at).toLocaleDateString('ru-RU')}</td>
-      <td>\${r.current_status ?? '—'}</td>\`;
+      <td>\${r.current_status ?? '—'}</td>
+      <td>\${r.score ?? '—'}</td><td>\${r.niche ?? '—'}</td><td>\${r.age_years ?? '—'}</td>\`;
     tbody.appendChild(tr);
   }
 }
 el('apply').addEventListener('click', load);
+el('evaluate').addEventListener('click', async () => {
+  const domains = [...document.querySelectorAll('.row-select:checked')].map((cb) => cb.dataset.domain);
+  if (!domains.length) return;
+  el('status').textContent = 'Оценка запущена...';
+  await fetch('/api/v1/evaluate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ domains }),
+  });
+  el('status').textContent = 'Оценка запущена в фоне, обновите список через минуту';
+});
 el('export').addEventListener('click', (e) => {
   e.preventDefault();
   location.href = '/api/v1/drops/export.csv?' + query().toString();
@@ -310,5 +338,93 @@ el('create').addEventListener('click', async () => {
   el('created').textContent = res.ok ? JSON.stringify(data, null, 2) : 'Ошибка: ' + JSON.stringify(data);
   refresh();
 });
+</script>
+</body></html>`;
+
+const DOMAIN_HTML = `<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>JetLean Domains — оценка домена</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
+  header { padding: 1rem 2rem; border-bottom: 1px solid #222; }
+  nav a { color: #9ab3ff; text-decoration: none; margin-right: 1rem; font-size: .9rem; }
+  main { padding: 1rem 2rem; max-width: 720px; }
+  .score { font-size: 2.5rem; font-weight: bold; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+  th, td { text-align: left; padding: .4rem; border-bottom: 1px solid #222; }
+  .flag { display: inline-block; padding: .15rem .5rem; border-radius: 4px; font-size: .8rem; margin-right: .3rem; background: #3d1f1f; color: #ff8787; }
+  .hint { color: #aaa; font-size: .85rem; }
+  button { padding: .5rem 1rem; border-radius: 4px; border: none; background: #4f7cff; color: #fff; cursor: pointer; margin-top: .6rem; }
+  a.snap { color: #9ab3ff; }
+</style></head>
+<body>
+<header><h2>JetLean Domains</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/admin/tokens">Токены</a></nav></header>
+<main>
+  <h3 id="domain-title"></h3>
+  <div id="content"><p class="hint">Загрузка...</p></div>
+  <button id="evaluate">Оценить / обновить оценку</button>
+</main>
+<script>
+const el = (id) => document.getElementById(id);
+const domain = location.pathname.split('/').pop();
+el('domain-title').textContent = domain;
+
+function flagsHtml(flags) {
+  if (!flags) return '';
+  const labels = { spam: 'спам', topic_change: 'смена тематики', parked: 'парковка', no_history: 'нет истории' };
+  return Object.entries(labels)
+    .filter(([k]) => flags[k])
+    .map(([, label]) => '<span class="flag">' + label + '</span>')
+    .join('') || '<span class="hint">нет флагов</span>';
+}
+
+function waybackLinks(e) {
+  if (!e.first_snapshot && !e.last_snapshot) return '<p class="hint">снимков Wayback не найдено</p>';
+  const first = e.first_snapshot ? e.first_snapshot.replace(/[^0-9]/g, '').slice(0, 14) : null;
+  const last = e.last_snapshot ? e.last_snapshot.replace(/[^0-9]/g, '').slice(0, 14) : null;
+  const links = [];
+  if (first) links.push('<a class="snap" target="_blank" href="https://web.archive.org/web/' + first + '/' + domain + '">первый снимок</a>');
+  if (last) links.push('<a class="snap" target="_blank" href="https://web.archive.org/web/' + last + '/' + domain + '">последний снимок</a>');
+  return '<p>' + links.join(' · ') + '</p>';
+}
+
+async function load() {
+  const res = await fetch('/api/v1/evaluations?domain=' + encodeURIComponent(domain));
+  if (res.status === 401) { location.href = '/login'; return; }
+  const data = await res.json();
+  const e = (data.results ?? [])[0];
+  if (!e) {
+    el('content').innerHTML = '<p class="hint">Оценки пока нет — нажмите «Оценить».</p>';
+    return;
+  }
+  el('content').innerHTML = \`
+    <div class="score">\${e.score} / 100</div>
+    <p>Ниша: <b>\${e.niche}</b> (уверенность \${Math.round(e.niche_confidence * 100)}%)</p>
+    <p>Возраст: \${e.age_years ?? '—'} лет, снимков Wayback: \${e.snapshot_count}</p>
+    <p>Флаги: \${flagsHtml(e.flags)}</p>
+    \${waybackLinks(e)}
+    <p>Ссылающихся страниц (оценка Common Crawl, метод: \${e.backlinks_method ?? '—'}): \${e.backlinks_estimate ?? '—'}</p>
+    <table>
+      <thead><tr><th>Компонент</th><th>Баллы</th></tr></thead>
+      <tbody>
+        <tr><td>Возраст</td><td>\${e.breakdown.age}</td></tr>
+        <tr><td>История</td><td>\${e.breakdown.history}</td></tr>
+        <tr><td>Чистота</td><td>\${e.breakdown.cleanliness}</td></tr>
+        <tr><td>Ссылки</td><td>\${e.breakdown.backlinks}</td></tr>
+        <tr><td>Вид домена</td><td>\${e.breakdown.domain_shape}</td></tr>
+        <tr><td>Зона</td><td>\${e.breakdown.zone}</td></tr>
+      </tbody>
+    </table>
+    <p class="hint">Оценено: \${new Date(e.computed_at).toLocaleString('ru-RU')}, кэш до \${new Date(e.cache_expires_at).toLocaleString('ru-RU')}</p>\`;
+}
+el('evaluate').addEventListener('click', async () => {
+  el('content').insertAdjacentHTML('afterbegin', '<p class="hint" id="eval-status">Оценка запущена...</p>');
+  await fetch('/api/v1/evaluate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ domains: [domain] }),
+  });
+  setTimeout(load, 3000);
+});
+load();
 </script>
 </body></html>`;

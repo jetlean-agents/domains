@@ -1,0 +1,5 @@
+[["timestamp","original","statuscode"],
+["20120305123456","http://example.com/","200"],
+["20150811090000","http://example.com/about","200"],
+["20150811090005","http://example.com/about","200"],
+["20230101000000","http://example.com/","200"]]
