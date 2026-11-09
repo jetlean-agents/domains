@@ -46,4 +46,16 @@ export const config = {
     .filter(Boolean),
   csvImportCron: process.env.CSV_IMPORT_CRON ?? "",
   uaWatchCron: process.env.UA_WATCH_CRON ?? "",
+  wayback: {
+    minIntervalMs: envInt("WAYBACK_MIN_INTERVAL_MS", 4000),
+    sampleSize: envInt("WAYBACK_SAMPLE", 4),
+    timeoutMs: envInt("WAYBACK_TIMEOUT_MS", 10_000),
+  },
+  commonCrawl: {
+    minIntervalMs: envInt("CC_MIN_INTERVAL_MS", 1000),
+    timeoutMs: envInt("CC_TIMEOUT_MS", 10_000),
+  },
+  evalCacheTtlSeconds: envInt("EVAL_CACHE_TTL", 30 * 24 * 3600),
+  evalDailyLimit: envInt("EVAL_DAILY_LIMIT", 50),
+  evalCron: process.env.EVAL_CRON ?? "",
 };

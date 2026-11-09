@@ -27,6 +27,14 @@ services:
       CSV_IMPORT_URLS: ${CSV_IMPORT_URLS:-}
       CSV_IMPORT_CRON: ${CSV_IMPORT_CRON:-}
       UA_WATCH_CRON: ${UA_WATCH_CRON:-}
+      WAYBACK_MIN_INTERVAL_MS: ${WAYBACK_MIN_INTERVAL_MS:-4000}
+      WAYBACK_SAMPLE: ${WAYBACK_SAMPLE:-4}
+      WAYBACK_TIMEOUT_MS: ${WAYBACK_TIMEOUT_MS:-10000}
+      CC_MIN_INTERVAL_MS: ${CC_MIN_INTERVAL_MS:-1000}
+      CC_TIMEOUT_MS: ${CC_TIMEOUT_MS:-10000}
+      EVAL_CACHE_TTL: ${EVAL_CACHE_TTL:-2592000}
+      EVAL_DAILY_LIMIT: ${EVAL_DAILY_LIMIT:-50}
+      EVAL_CRON: ${EVAL_CRON:-}
     # No host port published: prod is reached only via Tailscale (host networking /
     # a Tailscale-bound proxy), stage via Dokploy/Traefik — both talk to the
     # container on the internal compose network, never 0.0.0.0 on the host.

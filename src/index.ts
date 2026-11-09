@@ -6,6 +6,7 @@ import { scheduleDaily } from "./scheduler.js";
 import { runAllZoneDiffs } from "./zonediff/run.js";
 import { runCsvImportUrls } from "./csvimport/schedule.js";
 import { recheckWatchlist } from "./uawatch/watch.js";
+import { runAutoEvaluation } from "./evaluation/auto-eval.js";
 
 async function main() {
   await runMigrations(pool);
@@ -15,6 +16,7 @@ async function main() {
   scheduleDaily(config.zoneDiffCron, () => runAllZoneDiffs(pool).then(() => undefined));
   scheduleDaily(config.csvImportCron, () => runCsvImportUrls(pool));
   scheduleDaily(config.uaWatchCron, () => recheckWatchlist(pool).then(() => undefined));
+  scheduleDaily(config.evalCron, () => runAutoEvaluation(pool).then(() => undefined));
 }
 
 main().catch((err) => {
