@@ -42,7 +42,7 @@ function countHits(text: string, keywords: string[]): number {
 }
 
 /** Counts niche keyword hits per niche for one page's text (no zone prior applied here). */
-export function countNicheHits(text: string): Record<Exclude<Niche, "none">, number> {
+export function countNicheHits(text: string): Record<Exclude<Niche, "none" | "other">, number> {
   return {
     auto: countHits(text, NICHE_KEYWORDS.auto),
     energy: countHits(text, NICHE_KEYWORDS.energy),
@@ -64,47 +64,86 @@ export interface NicheClassification {
   confidence: number;
 }
 
+/** Minimum raw (post-prior) hit count required to trust a niche instead of calling it "other". */
+const MIN_NICHE_HITS = 2;
+/** Minimum share of the winning niche among all hits required to trust it instead of "other". */
+const MIN_NICHE_CONFIDENCE = 0.5;
+/** Cap applied when the guess rests on the zone prior alone, with no sampled page content at all. */
+const NO_CONTENT_CONFIDENCE_CAP = 0.3;
+
 /**
  * Aggregates per-sample niche hit counts plus a small zone-based prior (e.g. .com.ua -> auto/energy/news)
- * into one niche guess with a 0..1 confidence. `none` wins when nothing scores above zero.
+ * into one niche guess with a 0..1 confidence. `none` wins when nothing scores above zero; `other`
+ * wins when the winning niche's signal is too weak or too ambiguous to trust (e.g. a generic word
+ * that happens to overlap one niche's keyword list) rather than forcing it into the nearest of the
+ * 4 known niches. When there were zero sampled pages (e.g. no Wayback history at all), the guess —
+ * if any — comes purely from the zone prior, so its confidence is capped well below certainty.
  */
 export function classifyNiche(
-  sampleHits: Array<Record<Exclude<Niche, "none">, number>>,
+  sampleHits: Array<Record<Exclude<Niche, "none" | "other">, number>>,
   publicSuffix: string | null,
 ): NicheClassification {
-  const totals: Record<Exclude<Niche, "none">, number> = { auto: 0, energy: 0, news: 0, deals_us: 0 };
+  const totals: Record<Exclude<Niche, "none" | "other">, number> = { auto: 0, energy: 0, news: 0, deals_us: 0 };
   for (const hits of sampleHits) {
     for (const niche of Object.keys(totals) as Array<keyof typeof totals>) {
       totals[niche] += hits[niche];
     }
   }
-  const prior: Partial<Record<Exclude<Niche, "none">, number>> = publicSuffix
+  const prior: Partial<Record<Exclude<Niche, "none" | "other">, number>> = publicSuffix
     ? ZONE_NICHE_PRIOR[publicSuffix] ?? {}
     : {};
   for (const niche of Object.keys(totals) as Array<keyof typeof totals>) {
     totals[niche] += prior[niche] ?? 0;
   }
 
-  const entries = Object.entries(totals) as Array<[Exclude<Niche, "none">, number]>;
+  const entries = Object.entries(totals) as Array<[Exclude<Niche, "none" | "other">, number]>;
   const [bestNiche, bestScore] = entries.reduce((best, cur) => (cur[1] > best[1] ? cur : best));
   if (bestScore <= 0) return { niche: "none", confidence: 0 };
 
   const total = entries.reduce((sum, [, v]) => sum + v, 0);
-  const confidence = Math.min(1, bestScore / Math.max(1, total));
-  return { niche: bestNiche, confidence: Math.round(confidence * 100) / 100 };
+  const confidence = Math.round(Math.min(1, bestScore / Math.max(1, total)) * 100) / 100;
+
+  if (sampleHits.length === 0) {
+    return { niche: bestNiche, confidence: Math.min(confidence, NO_CONTENT_CONFIDENCE_CAP) };
+  }
+  if (bestScore < MIN_NICHE_HITS || confidence < MIN_NICHE_CONFIDENCE) {
+    return { niche: "other", confidence };
+  }
+  return { niche: bestNiche, confidence };
 }
 
+/** Consecutive same-niche samples required, after the baseline, before a switch counts as real. */
+const TOPIC_CHANGE_MIN_RUN = 2;
+/** Minimum share of a sample's hits the new niche must hold to count towards that run. */
+const TOPIC_CHANGE_MIN_CONFIDENCE = 0.5;
+
 /**
- * Flags a topic change when the dominant niche across time-ordered samples switches from one
- * specific niche to a different specific niche (samples with no niche signal are ignored, so a
- * single ambiguous snapshot in the middle doesn't trigger a false positive).
+ * Flags a topic change only when the dominant niche settles on a *different* niche for at least
+ * `TOPIC_CHANGE_MIN_RUN` consecutive confident samples after the baseline (the first sample with
+ * any niche signal) — not merely whenever two different niches appear anywhere in the history.
+ * Samples with no niche signal are ignored (they neither extend nor break a run), and a single
+ * noisy/ambiguous snapshot (low confidence) in an otherwise-stable history doesn't break the
+ * baseline or start counting towards a change. This avoids flagging a long-running single-topic
+ * site (e.g. a 28-year-old news site) just because classifier noise picks a different best-match
+ * niche on one or two of many sampled snapshots.
  */
-export function detectTopicChange(sampleHits: Array<Record<Exclude<Niche, "none">, number>>): boolean {
-  const dominants: string[] = [];
+export function detectTopicChange(sampleHits: Array<Record<Exclude<Niche, "none" | "other">, number>>): boolean {
+  const dominants: Array<{ niche: string; confidence: number }> = [];
   for (const hits of sampleHits) {
     const entries = Object.entries(hits);
+    const total = entries.reduce((sum, [, v]) => sum + v, 0);
     const [bestNiche, bestScore] = entries.reduce((best, cur) => (cur[1] > best[1] ? cur : best));
-    if (bestScore > 0) dominants.push(bestNiche);
+    if (bestScore <= 0) continue;
+    dominants.push({ niche: bestNiche, confidence: bestScore / Math.max(1, total) });
   }
-  return new Set(dominants).size > 1;
+  if (dominants.length === 0) return false;
+
+  const baseline = dominants[0].niche;
+  let run = 0;
+  for (const d of dominants) {
+    const isConfidentSwitch = d.niche !== baseline && d.confidence >= TOPIC_CHANGE_MIN_CONFIDENCE;
+    run = isConfidentSwitch ? run + 1 : 0;
+    if (run >= TOPIC_CHANGE_MIN_RUN) return true;
+  }
+  return false;
 }

@@ -6,7 +6,7 @@ import { checkDomain } from "../domain/pipeline.js";
 import { importCsv } from "../csvimport/import.js";
 import type { Niche } from "../evaluation/types.js";
 
-const VALID_NICHES: Niche[] = ["auto", "energy", "news", "deals_us", "none"];
+const VALID_NICHES: Niche[] = ["auto", "energy", "news", "deals_us", "other", "none"];
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 50;

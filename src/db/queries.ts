@@ -284,6 +284,9 @@ function rowToEvaluation(row: any): EvaluationResult {
     niche: row.niche,
     niche_confidence: row.niche_confidence,
     flags: row.flags,
+    // Not a stored column: a component (currently only backlinks) being null in the persisted
+    // breakdown JSON is itself the record of "this evaluation was partial", so derive it here.
+    partial: Object.values(row.breakdown as Record<string, number | null>).some((v) => v === null),
     age_years: row.age_years,
     first_snapshot: row.first_snapshot ? new Date(row.first_snapshot).toISOString() : null,
     last_snapshot: row.last_snapshot ? new Date(row.last_snapshot).toISOString() : null,

@@ -179,7 +179,7 @@ const DROPS_HTML = `<!doctype html>
     <input id="f-maxlen" type="number" placeholder="макс. длина" style="width:7rem">
     <label><input id="f-nodigits" type="checkbox"> без цифр</label>
     <label><input id="f-nohyphens" type="checkbox"> без дефисов</label>
-    <select id="f-niche"><option value="">Ниша (любая)</option><option value="auto">auto</option><option value="energy">energy</option><option value="news">news</option><option value="deals_us">deals_us</option><option value="none">none</option></select>
+    <select id="f-niche"><option value="">Ниша (любая)</option><option value="auto">auto</option><option value="energy">energy</option><option value="news">news</option><option value="deals_us">deals_us</option><option value="other">other</option><option value="none">none</option></select>
     <input id="f-minscore" type="number" placeholder="мин. балл" style="width:7rem">
     <input id="f-minage" type="number" placeholder="мин. возраст (лет)" style="width:9rem">
     <label><input id="f-sortscore" type="checkbox"> сортировать по баллу</label>
@@ -397,7 +397,7 @@ async function load() {
     return;
   }
   el('content').innerHTML = \`
-    <div class="score">\${e.score} / 100</div>
+    <div class="score">\${e.score} / 100\${e.partial ? ' <span class="hint">(частичная оценка)</span>' : ''}</div>
     <p>Ниша: <b>\${e.niche}</b> (уверенность \${Math.round(e.niche_confidence * 100)}%)</p>
     <p>Возраст: \${e.age_years ?? '—'} лет, снимков Wayback: \${e.snapshot_count}</p>
     <p>Флаги: \${flagsHtml(e.flags)}</p>
@@ -409,7 +409,7 @@ async function load() {
         <tr><td>Возраст</td><td>\${e.breakdown.age}</td></tr>
         <tr><td>История</td><td>\${e.breakdown.history}</td></tr>
         <tr><td>Чистота</td><td>\${e.breakdown.cleanliness}</td></tr>
-        <tr><td>Ссылки</td><td>\${e.breakdown.backlinks}</td></tr>
+        <tr><td>Ссылки</td><td>\${e.breakdown.backlinks ?? 'н/д (источник недоступен)'}</td></tr>
         <tr><td>Вид домена</td><td>\${e.breakdown.domain_shape}</td></tr>
         <tr><td>Зона</td><td>\${e.breakdown.zone}</td></tr>
       </tbody>

@@ -16,6 +16,16 @@ export interface ScoreInput {
 
 const ZONE_BONUS: Record<string, number> = { com: 5, "com.ua": 4, ua: 3, net: 3, org: 2 };
 
+/** Max points per component, used to renormalize the total when a component is unavailable (null). */
+const COMPONENT_MAX = {
+  age: 20,
+  history: 20,
+  cleanliness: 25,
+  backlinks: 20,
+  domain_shape: 10,
+  zone: 5,
+} as const satisfies Record<keyof ScoreBreakdown, number>;
+
 /** 0..20: older first snapshot scores higher, capped at 10 years. */
 function scoreAge(ageYears: number | null): number {
   if (!ageYears || ageYears <= 0) return 0;
@@ -34,9 +44,14 @@ function scoreCleanliness(spamSampleRatio: number, parkedLatest: boolean, topicC
   return Math.max(0, Math.round(25 - penalty));
 }
 
-/** 0..20: log-scaled so the first few referring pages matter more than the next few hundred. */
-function scoreBacklinks(backlinksEstimate: number | null): number {
-  if (!backlinksEstimate || backlinksEstimate <= 0) return 0;
+/**
+ * 0..20, log-scaled so the first few referring pages matter more than the next few hundred; null
+ * when the backlinks source itself was unavailable (as opposed to a successful "zero pages" read),
+ * so the caller can exclude it from the score instead of counting an outage as "no backlinks".
+ */
+function scoreBacklinks(backlinksEstimate: number | null): number | null {
+  if (backlinksEstimate === null) return null;
+  if (backlinksEstimate <= 0) return 0;
   return Math.min(20, Math.round(Math.log2(backlinksEstimate + 1) * 3));
 }
 
@@ -55,7 +70,7 @@ function scoreZone(publicSuffix: string | null): number {
   return ZONE_BONUS[publicSuffix] ?? 1;
 }
 
-export function computeScore(input: ScoreInput): { score: number; breakdown: ScoreBreakdown } {
+export function computeScore(input: ScoreInput): { score: number; breakdown: ScoreBreakdown; partial: boolean } {
   const breakdown: ScoreBreakdown = {
     age: scoreAge(input.ageYears),
     history: scoreHistory(input.snapshotCount, input.yearsCovered),
@@ -64,8 +79,21 @@ export function computeScore(input: ScoreInput): { score: number; breakdown: Sco
     domain_shape: scoreDomainShape(input.label),
     zone: scoreZone(input.publicSuffix),
   };
-  const score = Object.values(breakdown).reduce((sum, v) => sum + v, 0);
-  return { score: Math.max(0, Math.min(100, score)), breakdown };
+
+  // A component that couldn't be computed (currently only backlinks, when Common Crawl was
+  // unavailable) is excluded entirely rather than counted as 0: the score is renormalized over
+  // whatever components did come back, so an upstream outage doesn't masquerade as a bad score.
+  let earned = 0;
+  let maxPossible = 0;
+  for (const key of Object.keys(COMPONENT_MAX) as Array<keyof typeof COMPONENT_MAX>) {
+    const value = breakdown[key];
+    if (value === null) continue;
+    earned += value;
+    maxPossible += COMPONENT_MAX[key];
+  }
+  const score = maxPossible > 0 ? Math.round((earned / maxPossible) * 100) : 0;
+  const partial = Object.values(breakdown).some((v) => v === null);
+  return { score: Math.max(0, Math.min(100, score)), breakdown, partial };
 }
 
 export function detectFlags(input: {

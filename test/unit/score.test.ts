@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { computeScore, detectFlags } from "../../src/evaluation/score.js";
 
 describe("computeScore", () => {
-  it("scores a domain with no Wayback history and no backlinks at (close to) zero", () => {
-    const { score, breakdown } = computeScore({
+  it("scores a domain with no Wayback history and unavailable backlinks at (close to) zero, marked partial", () => {
+    const { score, breakdown, partial } = computeScore({
       ageYears: null,
       snapshotCount: 0,
       yearsCovered: 0,
@@ -16,10 +16,34 @@ describe("computeScore", () => {
     });
     expect(breakdown.age).toBe(0);
     expect(breakdown.history).toBe(0);
-    expect(breakdown.backlinks).toBe(0);
+    expect(breakdown.backlinks).toBeNull();
+    expect(partial).toBe(true);
     expect(breakdown.cleanliness).toBe(25);
-    expect(score).toBeGreaterThan(0); // domain_shape + zone still contribute
-    expect(score).toBeLessThan(40);
+    expect(score).toBeGreaterThan(0);
+    // Renormalized over the components that did come back (cleanliness + domain_shape + zone,
+    // out of their own max), not diluted by an unavailable backlinks source counting as 0/20.
+    expect(score).toBe(48);
+  });
+
+  it("does not count an unavailable backlinks source as 0 — it renormalizes over the other components", () => {
+    const base = {
+      ageYears: 10,
+      snapshotCount: 50,
+      yearsCovered: 5,
+      spamSampleRatio: 0,
+      parkedLatest: false,
+      topicChange: false,
+      label: "example",
+      publicSuffix: "com",
+    };
+    const unavailable = computeScore({ ...base, backlinksEstimate: null });
+    const zeroButKnown = computeScore({ ...base, backlinksEstimate: 0 });
+    expect(unavailable.partial).toBe(true);
+    expect(zeroButKnown.partial).toBe(false);
+    // Same inputs otherwise, but "unavailable" (excluded + renormalized) must score strictly
+    // higher than "confirmed zero backlinks" (counted as 0 out of 20) — an outage must never look
+    // worse than, or the same as, a domain that was actually checked and has no backlinks.
+    expect(unavailable.score).toBeGreaterThan(zeroButKnown.score);
   });
 
   it("rewards an old, deeply-archived, clean, short domain with a high score", () => {
