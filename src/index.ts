@@ -2,10 +2,10 @@ import { buildApp } from "./app.js";
 import { config } from "./config.js";
 import { pool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
-import { scheduleDaily } from "./scheduler.js";
+import { scheduleDaily, scheduleInterval } from "./scheduler.js";
 import { runAllZoneDiffs } from "./zonediff/run.js";
 import { runCsvImportUrls } from "./csvimport/schedule.js";
-import { recheckWatchlist } from "./uawatch/watch.js";
+import { recheckDueWatchlist } from "./watchlist/recheck.js";
 import { runAutoEvaluation } from "./evaluation/auto-eval.js";
 
 async function main() {
@@ -15,7 +15,8 @@ async function main() {
 
   scheduleDaily(config.zoneDiffCron, () => runAllZoneDiffs(pool).then(() => undefined));
   scheduleDaily(config.csvImportCron, () => runCsvImportUrls(pool));
-  scheduleDaily(config.uaWatchCron, () => recheckWatchlist(pool).then(() => undefined));
+  scheduleDaily(config.watchDailyAt, () => recheckDueWatchlist(pool).then(() => undefined));
+  scheduleInterval(config.watchFastIntervalSeconds, () => recheckDueWatchlist(pool).then(() => undefined));
   scheduleDaily(config.evalCron, () => runAutoEvaluation(pool).then(() => undefined));
 }
 

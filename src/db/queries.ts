@@ -231,39 +231,233 @@ export async function revokeToken(
   return (rowCount ?? 0) > 0;
 }
 
-export interface UaWatchlistRow {
+export interface WatchlistRow {
   id: string;
   domain: string;
+  niche: string | null;
+  note: string | null;
+  added_by: string | null;
+  desired_action: string;
   status: DomainStatus;
+  expires_at: string | null;
   last_checked_at: string | null;
+  next_check_at: string;
+  expiry_warned_for_date: string | null;
+  autoreg_site_id: string | null;
+  autoreg_take_started_at: string | null;
+  created_at: string;
 }
 
+/** Bulk-seeds bare domains (admin/CLI path); doesn't touch niche/note of an already-watched domain. */
 export async function seedWatchlist(pool: Pool, domains: string[]): Promise<number> {
   if (domains.length === 0) return 0;
   const values = domains.map((_, i) => `($${i + 1})`).join(", ");
   const { rowCount } = await pool.query(
-    `INSERT INTO ua_watchlist (domain) VALUES ${values} ON CONFLICT (domain) DO NOTHING`,
+    `INSERT INTO watchlist (domain) VALUES ${values} ON CONFLICT (domain) DO NOTHING`,
     domains,
   );
   return rowCount ?? 0;
 }
 
-export async function listWatchlist(pool: Pool): Promise<UaWatchlistRow[]> {
+export interface WatchlistAddInput {
+  domain: string;
+  niche?: string | null;
+  note?: string | null;
+  addedBy?: string | null;
+  desiredAction?: string;
+}
+
+/** Adds (or re-tags) a watched domain; idempotent on `domain` — a repeat add updates niche/note instead of erroring. */
+export async function addWatchlistEntry(pool: Pool, input: WatchlistAddInput): Promise<WatchlistRow> {
   const { rows } = await pool.query(
-    `SELECT id, domain, status, last_checked_at FROM ua_watchlist ORDER BY domain`,
+    `INSERT INTO watchlist (domain, niche, note, added_by, desired_action)
+     VALUES ($1, $2, $3, $4, COALESCE($5, 'take'))
+     ON CONFLICT (domain) DO UPDATE SET
+       niche = COALESCE(EXCLUDED.niche, watchlist.niche),
+       note = COALESCE(EXCLUDED.note, watchlist.note),
+       desired_action = COALESCE(EXCLUDED.desired_action, watchlist.desired_action)
+     RETURNING *`,
+    [input.domain, input.niche ?? null, input.note ?? null, input.addedBy ?? null, input.desiredAction ?? null],
+  );
+  return rows[0];
+}
+
+export interface WatchlistFilter {
+  status?: string;
+  niche?: string;
+  limit: number;
+  offset: number;
+}
+
+export async function listWatchlistEntries(pool: Pool, filter: WatchlistFilter): Promise<WatchlistRow[]> {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  if (filter.status) {
+    params.push(filter.status);
+    clauses.push(`status = $${params.length}`);
+  }
+  if (filter.niche) {
+    params.push(filter.niche);
+    clauses.push(`niche = $${params.length}`);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  params.push(filter.limit, filter.offset);
+  const { rows } = await pool.query(
+    `SELECT * FROM watchlist ${where} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params,
   );
   return rows;
 }
 
-export async function updateWatchlistStatus(
-  pool: Pool,
-  domain: string,
-  status: DomainStatus,
-): Promise<void> {
-  await pool.query(
-    `UPDATE ua_watchlist SET status = $2, last_checked_at = now() WHERE domain = $1`,
-    [domain, status],
+export async function getWatchlistEntry(pool: Pool, id: string): Promise<WatchlistRow | null> {
+  const { rows } = await pool.query(`SELECT * FROM watchlist WHERE id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
+export async function deleteWatchlistEntry(pool: Pool, id: string): Promise<boolean> {
+  const { rowCount } = await pool.query(`DELETE FROM watchlist WHERE id = $1`, [id]);
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Atomically claims every watchlist entry currently due (`next_check_at <= now()`) by pushing
+ * their `next_check_at` out by `leaseSeconds` right away (`FOR UPDATE SKIP LOCKED` so two
+ * concurrent callers split the due set instead of both grabbing the same rows). Used by both the
+ * fast- and daily-interval schedulers, which otherwise could overlap on a slow batch. The lease
+ * is just a safety net for a crash mid-batch — on success `updateWatchlistAfterCheck` overwrites
+ * it with the real tier-based `next_check_at`.
+ */
+export async function claimDueWatchlistEntries(pool: Pool, leaseSeconds: number): Promise<WatchlistRow[]> {
+  const { rows } = await pool.query(
+    `UPDATE watchlist SET next_check_at = now() + ($1 || ' seconds')::interval
+     WHERE id IN (SELECT id FROM watchlist WHERE next_check_at <= now() FOR UPDATE SKIP LOCKED)
+     RETURNING *`,
+    [leaseSeconds],
   );
+  return rows;
+}
+
+/**
+ * Persists a recheck's result, but only if `status` still equals `prevStatus` — the condition
+ * that lets the caller (recheckWatchlistEntry) tell whether IT is the one that owns this
+ * transition. A second concurrent recheck of the same entry (an overlapping scheduler tick, or a
+ * manual `/check` racing the scheduler) loses this race, gets `false` back, and must not notify —
+ * otherwise one real transition would produce two Telegram messages. Returns whether this call won.
+ */
+export async function updateWatchlistAfterCheck(
+  pool: Pool,
+  id: string,
+  prevStatus: string,
+  patch: { status: DomainStatus; expiresAt: string | null; nextCheckAt: string },
+): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE watchlist SET status = $2, expires_at = $3, last_checked_at = now(), next_check_at = $4
+     WHERE id = $1 AND status = $5`,
+    [id, patch.status, patch.expiresAt, patch.nextCheckAt, prevStatus],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Marks the expiry warning sent for `date`, but only if `expiry_warned_for_date` still equals
+ * `prevWarnedForDate` — same race-ownership pattern as `updateWatchlistAfterCheck`, applied to
+ * the separate expiry-warning dedup key. Returns whether this call won (and so should notify).
+ */
+export async function setWatchlistExpiryWarned(
+  pool: Pool,
+  id: string,
+  prevWarnedForDate: string | null,
+  date: string,
+): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE watchlist SET expiry_warned_for_date = $3
+     WHERE id = $1 AND expiry_warned_for_date IS NOT DISTINCT FROM $2`,
+    [id, prevWarnedForDate, date],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Claims the right to call Autoreg for this entry: succeeds only if no site exists yet and no
+ * other claim is currently active (or the previous claim's TTL has lapsed, e.g. after a crash
+ * mid-request). Must be called — and must succeed — *before* calling Autoreg, so a losing
+ * concurrent "взять в работу" click never reaches Autoreg and can't create a duplicate site.
+ */
+export async function claimWatchlistForAutoreg(pool: Pool, id: string, claimTtlSeconds: number): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE watchlist SET autoreg_take_started_at = now()
+     WHERE id = $1 AND autoreg_site_id IS NULL
+       AND (autoreg_take_started_at IS NULL OR autoreg_take_started_at < now() - ($2 || ' seconds')::interval)`,
+    [id, claimTtlSeconds],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Persists the created Autoreg site id; guarded by `autoreg_site_id IS NULL` as a second,
+ *  belt-and-suspenders idempotency check alongside the claim above. */
+export async function setWatchlistAutoregSiteId(pool: Pool, id: string, siteId: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE watchlist SET autoreg_site_id = $2 WHERE id = $1 AND autoreg_site_id IS NULL`,
+    [id, siteId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export interface WatchEventInsert {
+  watchlistId: string;
+  domain: string;
+  eventType: "status_transition" | "expiry_warning";
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  message: string;
+  notified: boolean;
+}
+
+export async function insertWatchEvent(pool: Pool, event: WatchEventInsert): Promise<void> {
+  await pool.query(
+    `INSERT INTO watch_events (watchlist_id, domain, event_type, from_status, to_status, message, notified)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      event.watchlistId,
+      event.domain,
+      event.eventType,
+      event.fromStatus ?? null,
+      event.toStatus ?? null,
+      event.message,
+      event.notified,
+    ],
+  );
+}
+
+export interface WatchEventRow {
+  id: string;
+  watchlist_id: string;
+  domain: string;
+  event_type: string;
+  from_status: string | null;
+  to_status: string | null;
+  message: string;
+  notified: boolean;
+  created_at: string;
+}
+
+export async function listWatchEvents(
+  pool: Pool,
+  filter: { watchlistId?: string; limit: number; offset: number },
+): Promise<WatchEventRow[]> {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  if (filter.watchlistId) {
+    params.push(filter.watchlistId);
+    clauses.push(`watchlist_id = $${params.length}`);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  params.push(filter.limit, filter.offset);
+  const { rows } = await pool.query(
+    `SELECT * FROM watch_events ${where} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params,
+  );
+  return rows;
 }
 
 export async function recordCsvImport(

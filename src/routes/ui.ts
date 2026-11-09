@@ -51,6 +51,13 @@ export function registerUiRoutes(app: FastifyInstance): void {
     if (!ok) return reply.redirect("/login");
     reply.type("text/html").send(DOMAIN_HTML);
   });
+
+  app.get("/watchlist", async (req, reply) => {
+    const token = (req.cookies as Record<string, string> | undefined)?.token ?? "";
+    const ok = await verifyToken(pool, token);
+    if (!ok) return reply.redirect("/login");
+    reply.type("text/html").send(WATCHLIST_HTML);
+  });
 }
 
 const LOGIN_HTML = `<!doctype html>
@@ -106,7 +113,7 @@ const APP_HTML = `<!doctype html>
   nav a { color: #9ab3ff; text-decoration: none; margin-right: 1rem; font-size: .9rem; }
 </style></head>
 <body>
-<header><h2>JetLean Domains — проверка доступности</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/admin/tokens">Токены</a></nav></header>
+<header><h2>JetLean Domains — проверка доступности</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/watchlist">Вотчлист</a><a href="/admin/tokens">Токены</a></nav></header>
 <main>
   <textarea id="domains" placeholder="example.com&#10;example.com.ua&#10;example.de"></textarea>
   <br>
@@ -168,7 +175,7 @@ const DROPS_HTML = `<!doctype html>
   .toolbar { display: flex; gap: .5rem; align-items: center; margin-top: .5rem; }
 </style></head>
 <body>
-<header><h2>JetLean Domains</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/admin/tokens">Токены</a></nav></header>
+<header><h2>JetLean Domains</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/watchlist">Вотчлист</a><a href="/admin/tokens">Токены</a></nav></header>
 <main>
   <div class="filters">
     <input id="f-tld" placeholder="TLD (com, ua...)">
@@ -189,6 +196,7 @@ const DROPS_HTML = `<!doctype html>
   <div class="toolbar">
     <button id="check">Проверить доступность (выбранные)</button>
     <button id="evaluate">Оценить (выбранные)</button>
+    <button id="watch">В вотчлист (выбранные)</button>
     <input id="csv-file" type="file" accept=".csv">
     <button id="upload">Загрузить CSV</button>
     <span id="status"></span>
@@ -224,7 +232,7 @@ async function load() {
   tbody.innerHTML = '';
   for (const r of data.results ?? []) {
     const tr = document.createElement('tr');
-    tr.innerHTML = \`<td><input type="checkbox" class="row-select" data-domain="\${r.domain}"></td>
+    tr.innerHTML = \`<td><input type="checkbox" class="row-select" data-domain="\${r.domain}" data-niche="\${r.niche ?? ''}"></td>
       <td><a href="/domains/\${r.domain}">\${r.domain}</a></td><td>\${r.tld}</td><td>\${r.source}</td>
       <td>\${new Date(r.dropped_at).toLocaleDateString('ru-RU')}</td>
       <td>\${r.current_status ?? '—'}</td>
@@ -243,6 +251,19 @@ el('evaluate').addEventListener('click', async () => {
     body: JSON.stringify({ domains }),
   });
   el('status').textContent = 'Оценка запущена в фоне, обновите список через минуту';
+});
+el('watch').addEventListener('click', async () => {
+  const rows = [...document.querySelectorAll('.row-select:checked')];
+  if (!rows.length) return;
+  el('status').textContent = 'Добавление в вотчлист...';
+  for (const cb of rows) {
+    await fetch('/api/v1/watchlist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ domain: cb.dataset.domain, niche: cb.dataset.niche || undefined }),
+    });
+  }
+  el('status').textContent = 'Добавлено в вотчлист';
 });
 el('export').addEventListener('click', (e) => {
   e.preventDefault();
@@ -293,7 +314,7 @@ const ADMIN_TOKENS_HTML = `<!doctype html>
   .hint { color: #aaa; font-size: .8rem; }
 </style></head>
 <body>
-<header><h2>JetLean Domains</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/admin/tokens">Токены</a></nav></header>
+<header><h2>JetLean Domains</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/watchlist">Вотчлист</a><a href="/admin/tokens">Токены</a></nav></header>
 <main>
   <p class="hint">Действия ниже требуют настоящий ADMIN_TOKEN (не cookie-сессию) — он передаётся только в заголовке каждого запроса, нигде не сохраняется.</p>
   <input id="admin-token" type="password" placeholder="ADMIN_TOKEN">
@@ -357,11 +378,13 @@ const DOMAIN_HTML = `<!doctype html>
   a.snap { color: #9ab3ff; }
 </style></head>
 <body>
-<header><h2>JetLean Domains</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/admin/tokens">Токены</a></nav></header>
+<header><h2>JetLean Domains</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/watchlist">Вотчлист</a><a href="/admin/tokens">Токены</a></nav></header>
 <main>
   <h3 id="domain-title"></h3>
   <div id="content"><p class="hint">Загрузка...</p></div>
   <button id="evaluate">Оценить / обновить оценку</button>
+  <button id="watch">Хочу этот домен (в вотчлист)</button>
+  <span id="watch-status" class="hint"></span>
 </main>
 <script>
 const el = (id) => document.getElementById(id);
@@ -425,6 +448,145 @@ el('evaluate').addEventListener('click', async () => {
   });
   setTimeout(load, 3000);
 });
+el('watch').addEventListener('click', async () => {
+  const res = await fetch('/api/v1/watchlist', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ domain }),
+  });
+  el('watch-status').textContent = res.ok ? 'Добавлено в вотчлист' : 'Ошибка добавления';
+});
+load();
+</script>
+</body></html>`;
+
+const WATCHLIST_HTML = `<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>JetLean Domains — вотчлист</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
+  header { padding: 1rem 2rem; border-bottom: 1px solid #222; }
+  nav a { color: #9ab3ff; text-decoration: none; margin-right: 1rem; font-size: .9rem; }
+  main { padding: 1rem; max-width: 1100px; box-sizing: border-box; }
+  @media (min-width: 640px) { main { padding: 1rem 2rem; } }
+  .add { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+  .add input, .add select { background: #1a1d24; color: #fff; border: 1px solid #333; border-radius: 4px; padding: .4rem; }
+  button { padding: .5rem 1rem; border-radius: 4px; border: none; background: #4f7cff; color: #fff; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: .9rem; }
+  th, td { text-align: left; padding: .4rem; border-bottom: 1px solid #222; }
+  .hint { color: #aaa; font-size: .8rem; }
+  .journal { margin-top: 2rem; }
+</style></head>
+<body>
+<header><h2>JetLean Domains</h2><nav><a href="/">Проверка</a><a href="/drops">Дропы</a><a href="/watchlist">Вотчлист</a><a href="/admin/tokens">Токены</a></nav></header>
+<main>
+  <div class="add">
+    <input id="new-domain" placeholder="домен">
+    <select id="new-niche"><option value="">Ниша (необязательно)</option><option value="auto">auto</option><option value="energy">energy</option><option value="news">news</option><option value="deals_us">deals_us</option><option value="other">other</option></select>
+    <input id="new-note" placeholder="заметка">
+    <select id="new-action"><option value="take">взять как есть</option><option value="drop">drop</option><option value="new">new</option></select>
+    <button id="add">Добавить в вотчлист</button>
+    <span id="status" class="hint"></span>
+  </div>
+  <table id="results">
+    <thead><tr><th>Домен</th><th>Ниша</th><th>Заметка</th><th>Статус</th><th>До</th><th>Последняя проверка</th><th>Autoreg</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="journal">
+    <h3>Журнал событий</h3>
+    <table id="events">
+      <thead><tr><th>Домен</th><th>Тип</th><th>Сообщение</th><th>Доставлено</th><th>Когда</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+<script>
+const el = (id) => document.getElementById(id);
+
+async function load() {
+  const res = await fetch('/api/v1/watchlist');
+  if (res.status === 401) { location.href = '/login'; return; }
+  const data = await res.json();
+  const tbody = el('results').querySelector('tbody');
+  tbody.innerHTML = '';
+  for (const r of data.results ?? []) {
+    const tr = document.createElement('tr');
+    const expiry = r.expires_at ? new Date(r.expires_at).toLocaleDateString('ru-RU') : '—';
+    const lastChecked = r.last_checked_at ? new Date(r.last_checked_at).toLocaleString('ru-RU') : '—';
+    tr.innerHTML = \`<td>\${r.domain}</td><td>\${r.niche ?? '—'}</td><td>\${r.note ?? '—'}</td>
+      <td>\${r.status}</td><td>\${expiry}</td><td>\${lastChecked}</td>
+      <td>\${r.autoreg_site_id ?? '—'}</td>
+      <td>
+        <button class="check" data-id="\${r.id}">Проверить сейчас</button>
+        <button class="take" data-id="\${r.id}">Взять в работу</button>
+        <button class="remove" data-id="\${r.id}">Удалить</button>
+      </td>\`;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll('.check').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      el('status').textContent = 'Проверка...';
+      await fetch('/api/v1/watchlist/' + btn.dataset.id + '/check', { method: 'POST' });
+      el('status').textContent = '';
+      await load();
+    });
+  });
+  tbody.querySelectorAll('.take').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/v1/watchlist/' + btn.dataset.id + '/take', { method: 'POST' });
+        const data = await res.json();
+        el('status').textContent = res.ok ? 'Autoreg site: ' + data.autoreg_site_id : 'Ошибка: ' + (data.error ?? 'unknown');
+        await load();
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+  tbody.querySelectorAll('.remove').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await fetch('/api/v1/watchlist/' + btn.dataset.id, { method: 'DELETE' });
+      await load();
+    });
+  });
+  await loadEvents();
+}
+
+async function loadEvents() {
+  const res = await fetch('/api/v1/watchlist/events?limit=50');
+  if (!res.ok) return;
+  const data = await res.json();
+  const tbody = el('events').querySelector('tbody');
+  tbody.innerHTML = '';
+  for (const e of data.results ?? []) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = \`<td>\${e.domain}</td><td>\${e.event_type}</td><td>\${e.message}</td>
+      <td>\${e.notified ? 'да' : 'только журнал'}</td><td>\${new Date(e.created_at).toLocaleString('ru-RU')}</td>\`;
+    tbody.appendChild(tr);
+  }
+}
+
+el('add').addEventListener('click', async () => {
+  const domain = el('new-domain').value.trim();
+  if (!domain) return;
+  el('status').textContent = 'Добавление...';
+  const res = await fetch('/api/v1/watchlist', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      domain,
+      niche: el('new-niche').value || undefined,
+      note: el('new-note').value || undefined,
+      desired_action: el('new-action').value,
+    }),
+  });
+  el('status').textContent = res.ok ? '' : 'Ошибка добавления';
+  el('new-domain').value = '';
+  el('new-note').value = '';
+  await load();
+});
+
 load();
 </script>
 </body></html>`;

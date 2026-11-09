@@ -2,7 +2,7 @@
  * Minimal daily scheduler: ENV values are "HH:MM" (UTC, 24h). Every minute we
  * check whether the current UTC time matches and fire at most once per day.
  * A full cron syntax is out of scope — this covers the "once daily" need from
- * the issue (ZONE_DIFF_CRON / CSV_IMPORT_CRON / UA_WATCH_CRON).
+ * the issue (ZONE_DIFF_CRON / CSV_IMPORT_CRON / EVAL_CRON / WATCH_DAILY_AT).
  */
 export function scheduleDaily(spec: string | undefined, task: () => Promise<void>): void {
   if (!spec) return;
@@ -22,4 +22,12 @@ export function scheduleDaily(spec: string | undefined, task: () => Promise<void
       task().catch((err) => console.error("scheduled task failed:", err));
     }
   }, 30_000);
+}
+
+/** Runs `task` every `intervalSeconds`; a falsy/zero interval disables the schedule entirely. */
+export function scheduleInterval(intervalSeconds: number | undefined, task: () => Promise<void>): void {
+  if (!intervalSeconds) return;
+  setInterval(() => {
+    task().catch((err) => console.error("scheduled task failed:", err));
+  }, intervalSeconds * 1000);
 }
