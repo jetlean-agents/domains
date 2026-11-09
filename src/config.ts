@@ -28,4 +28,22 @@ export const config = {
   cookieSecure: process.env.COOKIE_SECURE
     ? process.env.COOKIE_SECURE === "true"
     : process.env.NODE_ENV === "production",
+  czds: {
+    username: process.env.CZDS_USERNAME ?? "",
+    password: process.env.CZDS_PASSWORD ?? "",
+    zones: (process.env.CZDS_ZONES ?? "")
+      .split(",")
+      .map((z) => z.trim())
+      .filter(Boolean),
+  },
+  zoneFilesDir: process.env.ZONE_FILES_DIR ?? "",
+  zoneDataDir: process.env.ZONE_DATA_DIR ?? "./data/zones",
+  zoneKeepSnapshots: envInt("ZONE_KEEP_SNAPSHOTS", 2),
+  zoneDiffCron: process.env.ZONE_DIFF_CRON ?? "",
+  csvImportUrls: (process.env.CSV_IMPORT_URLS ?? "")
+    .split(",")
+    .map((u) => u.trim())
+    .filter(Boolean),
+  csvImportCron: process.env.CSV_IMPORT_CRON ?? "",
+  uaWatchCron: process.env.UA_WATCH_CRON ?? "",
 };

@@ -16,6 +16,20 @@
 | `COOKIE_SECURE` | нет | `true`, если `NODE_ENV=production`, иначе `false` | явно включает/выключает флаг `secure` у cookie `token` (`"true"` / `"false"`) |
 | `POSTGRES_PASSWORD` | только для `docker-compose.yml` (stage/prod) | — | пароль пользователя `domains` во встроенном Postgres-контейнере compose |
 
+### Этап 2 — лента дропов
+
+| Переменная | Обязательна | По умолчанию | Описание |
+|---|---|---|---|
+| `CZDS_USERNAME` / `CZDS_PASSWORD` | нет | — | креды ICANN CZDS; если обе не заданы, zone diff читает локальные файлы из `ZONE_FILES_DIR` вместо скачивания |
+| `CZDS_ZONES` | нет | — | список TLD через запятую (`com,net,org`) для ежедневного zone diff (CZDS или `ZONE_FILES_DIR`) |
+| `ZONE_FILES_DIR` | нет (нужна, если нет CZDS-кредов) | — | директория с локальными `<tld>.zone` / `<tld>.zone.gz` файлами (тестовые зоны на stage/dev) |
+| `ZONE_DATA_DIR` | нет | `./data/zones` | директория для снимков доменов по TLD (`<tld>/<run_date>.sorted.txt`); должна быть на volume |
+| `ZONE_KEEP_SNAPSHOTS` | нет | `2` | сколько последних снимков на TLD хранить (старые удаляются после diff) |
+| `ZONE_DIFF_CRON` | нет | — | время ежедневного прогона zone diff, формат `"HH:MM"` (UTC); полный cron-синтаксис не поддерживается |
+| `CSV_IMPORT_URLS` | нет | — | список URL через запятую для импорта CSV по расписанию |
+| `CSV_IMPORT_CRON` | нет | — | время ежедневного импорта по `CSV_IMPORT_URLS`, формат `"HH:MM"` (UTC) |
+| `UA_WATCH_CRON` | нет | — | время ежедневной перепроверки `ua_watchlist`, формат `"HH:MM"` (UTC) |
+
 Имена без значений — см. `.env.example` в корне репозитория.
 
 **Важно:** т.к. образ всегда собирается с `NODE_ENV=production`, cookie `token`

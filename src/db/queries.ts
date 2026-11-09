@@ -1,6 +1,106 @@
 import type { Pool } from "pg";
 import type { CheckResult, DomainStatus, Source } from "../domain/types.js";
 
+export interface DropInsert {
+  domain: string;
+  tld: string;
+  source: string;
+  dropped_at: string;
+}
+
+/** Bulk-inserts drops, de-duplicating on (domain, source, dropped_at). */
+export async function insertDrops(pool: Pool, drops: DropInsert[]): Promise<number> {
+  if (drops.length === 0) return 0;
+  const values: string[] = [];
+  const params: unknown[] = [];
+  drops.forEach((d, i) => {
+    const base = i * 4;
+    values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`);
+    params.push(d.domain, d.tld, d.source, d.dropped_at);
+  });
+  const { rowCount } = await pool.query(
+    `INSERT INTO drops (domain, tld, source, dropped_at) VALUES ${values.join(", ")}
+     ON CONFLICT (domain, source, dropped_at) DO NOTHING`,
+    params,
+  );
+  return rowCount ?? 0;
+}
+
+export interface DropsFilter {
+  tld?: string;
+  source?: string;
+  since?: string;
+  q?: string;
+  minLen?: number;
+  maxLen?: number;
+  noDigits?: boolean;
+  noHyphens?: boolean;
+  limit: number;
+  offset: number;
+}
+
+export interface DropRow {
+  id: string;
+  domain: string;
+  tld: string;
+  source: string;
+  dropped_at: string;
+  created_at: string;
+}
+
+/** Builds the WHERE clause + params for `drops` list filters; pure, no DB access (unit-testable). */
+export function buildDropsWhere(filter: DropsFilter): { where: string; params: unknown[] } {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+
+  if (filter.tld) {
+    params.push(filter.tld);
+    clauses.push(`tld = $${params.length}`);
+  }
+  if (filter.source) {
+    params.push(filter.source);
+    clauses.push(`source = $${params.length}`);
+  }
+  if (filter.since) {
+    params.push(filter.since);
+    clauses.push(`dropped_at >= $${params.length}`);
+  }
+  if (filter.q) {
+    params.push(`%${filter.q}%`);
+    clauses.push(`domain ILIKE $${params.length}`);
+  }
+  if (filter.minLen !== undefined) {
+    params.push(filter.minLen);
+    clauses.push(`length(domain) >= $${params.length}`);
+  }
+  if (filter.maxLen !== undefined) {
+    params.push(filter.maxLen);
+    clauses.push(`length(domain) <= $${params.length}`);
+  }
+  if (filter.noDigits) {
+    clauses.push(`domain !~ '[0-9]'`);
+  }
+  if (filter.noHyphens) {
+    clauses.push(`domain !~ '-'`);
+  }
+
+  return { where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params };
+}
+
+/** Lists drops matching filters, newest first; pagination is simple offset-based (documented in the API). */
+export async function listDrops(pool: Pool, filter: DropsFilter): Promise<DropRow[]> {
+  const { where, params } = buildDropsWhere(filter);
+  params.push(filter.limit, filter.offset);
+  const { rows } = await pool.query(
+    `SELECT id, domain, tld, source, dropped_at, created_at FROM drops
+     ${where}
+     ORDER BY dropped_at DESC, id DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params,
+  );
+  return rows;
+}
+
 export async function getCached(pool: Pool, domain: string): Promise<CheckResult | null> {
   const { rows } = await pool.query(
     `SELECT domain, status, expires_at, registrar, checked_at
@@ -95,4 +195,49 @@ export async function revokeToken(
     [value],
   );
   return (rowCount ?? 0) > 0;
+}
+
+export interface UaWatchlistRow {
+  id: string;
+  domain: string;
+  status: DomainStatus;
+  last_checked_at: string | null;
+}
+
+export async function seedWatchlist(pool: Pool, domains: string[]): Promise<number> {
+  if (domains.length === 0) return 0;
+  const values = domains.map((_, i) => `($${i + 1})`).join(", ");
+  const { rowCount } = await pool.query(
+    `INSERT INTO ua_watchlist (domain) VALUES ${values} ON CONFLICT (domain) DO NOTHING`,
+    domains,
+  );
+  return rowCount ?? 0;
+}
+
+export async function listWatchlist(pool: Pool): Promise<UaWatchlistRow[]> {
+  const { rows } = await pool.query(
+    `SELECT id, domain, status, last_checked_at FROM ua_watchlist ORDER BY domain`,
+  );
+  return rows;
+}
+
+export async function updateWatchlistStatus(
+  pool: Pool,
+  domain: string,
+  status: DomainStatus,
+): Promise<void> {
+  await pool.query(
+    `UPDATE ua_watchlist SET status = $2, last_checked_at = now() WHERE domain = $1`,
+    [domain, status],
+  );
+}
+
+export async function recordCsvImport(
+  pool: Pool,
+  info: { sourceUrl?: string | null; provider: string; rowCount: number },
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO csv_imports (source_url, provider, row_count) VALUES ($1, $2, $3)`,
+    [info.sourceUrl ?? null, info.provider, info.rowCount],
+  );
 }

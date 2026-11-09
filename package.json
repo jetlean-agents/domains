@@ -14,7 +14,12 @@
     "token:list": "node dist/scripts/token-list.js",
     "token:create:dev": "tsx src/scripts/token-create.ts",
     "token:revoke:dev": "tsx src/scripts/token-revoke.ts",
-    "token:list:dev": "tsx src/scripts/token-list.ts"
+    "token:list:dev": "tsx src/scripts/token-list.ts",
+    "zone:diff": "node dist/scripts/zone-diff-run.js",
+    "zone:diff:dev": "tsx src/scripts/zone-diff-run.ts",
+    "ua:seed": "node dist/scripts/ua-watch-seed.js",
+    "ua:seed:dev": "tsx src/scripts/ua-watch-seed.ts",
+    "zone:memcheck": "tsx test/manual/zone-memory-check.ts"
   },
   "dependencies": {
     "fastify": "^5.1.0",

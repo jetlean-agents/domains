@@ -3,12 +3,21 @@ import cookie from "@fastify/cookie";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerCheckRoute } from "./routes/check.js";
 import { registerUiRoutes } from "./routes/ui.js";
+import { registerDropsRoutes } from "./routes/drops.js";
+import { registerAdminRoutes } from "./routes/admin.js";
 
 export async function buildApp() {
   const app = Fastify({ logger: true });
   await app.register(cookie);
+  app.addContentTypeParser(
+    ["text/csv", "application/octet-stream"],
+    { parseAs: "string" },
+    (_req, body, done) => done(null, body),
+  );
   registerHealthRoute(app);
   registerCheckRoute(app);
   registerUiRoutes(app);
+  registerDropsRoutes(app);
+  registerAdminRoutes(app);
   return app;
 }
