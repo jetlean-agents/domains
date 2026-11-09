@@ -67,3 +67,32 @@ export async function insertToken(
   );
   return rows[0];
 }
+
+export interface TokenSummary {
+  id: string;
+  name: string;
+  is_admin: boolean;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+export async function listTokens(pool: Pool): Promise<TokenSummary[]> {
+  const { rows } = await pool.query(
+    `SELECT id, name, is_admin, created_at, revoked_at FROM tokens ORDER BY created_at DESC`,
+  );
+  return rows;
+}
+
+/** Revokes a token by name or id; returns false if no matching, not-yet-revoked token exists. */
+export async function revokeToken(
+  pool: Pool,
+  by: { name: string } | { id: string },
+): Promise<boolean> {
+  const column = "name" in by ? "name" : "id";
+  const value = "name" in by ? by.name : by.id;
+  const { rowCount } = await pool.query(
+    `UPDATE tokens SET revoked_at = now() WHERE ${column} = $1 AND revoked_at IS NULL`,
+    [value],
+  );
+  return (rowCount ?? 0) > 0;
+}

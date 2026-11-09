@@ -25,4 +25,7 @@ export const config = {
   whoisTimeoutMs: envInt("WHOIS_TIMEOUT_MS", 5000),
   perHostConcurrency: envInt("PER_HOST_CONCURRENCY", 2),
   perHostRps: envInt("PER_HOST_RPS", 1),
+  cookieSecure: process.env.COOKIE_SECURE
+    ? process.env.COOKIE_SECURE === "true"
+    : process.env.NODE_ENV === "production",
 };

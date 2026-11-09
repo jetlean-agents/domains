@@ -5,6 +5,7 @@ services:
     depends_on:
       - db
     environment:
+      NODE_ENV: production
       DATABASE_URL: postgres://domains:${POSTGRES_PASSWORD}@db:5432/domains
       PORT: "3000"
       ADMIN_TOKEN: ${ADMIN_TOKEN}
@@ -15,8 +16,12 @@ services:
       WHOIS_TIMEOUT_MS: ${WHOIS_TIMEOUT_MS:-5000}
       PER_HOST_CONCURRENCY: ${PER_HOST_CONCURRENCY:-2}
       PER_HOST_RPS: ${PER_HOST_RPS:-1}
-    ports:
-      - "3000:3000"
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    # No host port published: prod is reached only via Tailscale (host networking /
+    # a Tailscale-bound proxy), stage via Dokploy/Traefik — both talk to the
+    # container on the internal compose network, never 0.0.0.0 on the host.
+    expose:
+      - "3000"
     mem_limit: 512m
     cpus: 0.5
 

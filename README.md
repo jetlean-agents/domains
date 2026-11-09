@@ -49,7 +49,15 @@ npm run dev
 ```bash
 npm run token:create -- --name autoreg
 npm run token:create -- --name admin-ui --admin
+npm run token:list
+npm run token:revoke -- --name autoreg   # или --id <uuid>
 ```
+
+На собранном образе (prod/stage) эти команды выполняют скомпилированный
+`dist/scripts/*.js` (`tsx` в рантайм-образе нет): `docker compose exec app npm
+run token:create -- --name autoreg` — см. `docs/deploy.md`. В dev-режиме без
+сборки есть `token:create:dev` / `token:revoke:dev` / `token:list:dev` (через
+`tsx`).
 
 Токен выводится один раз и хранится в БД только как SHA-256 хэш. Токен из
 `ADMIN_TOKEN` (ENV) работает всегда, без записи в БД — это bootstrap-доступ

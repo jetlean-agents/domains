@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db/client.js";
 import { verifyToken } from "../auth/tokens.js";
+import { config } from "../config.js";
 
 export function registerUiRoutes(app: FastifyInstance): void {
   app.get("/login", async (req, reply) => {
@@ -14,7 +15,12 @@ export function registerUiRoutes(app: FastifyInstance): void {
     if (!ok) {
       return reply.code(401).send({ error: "invalid_token" });
     }
-    reply.setCookie("token", token, { path: "/", httpOnly: true, sameSite: "strict" });
+    reply.setCookie("token", token, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "strict",
+      secure: config.cookieSecure,
+    });
     return reply.send({ ok: true });
   });
 

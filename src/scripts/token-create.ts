@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { pool } from "../src/db/client.js";
-import { runMigrations } from "../src/db/migrate.js";
-import { hashToken } from "../src/auth/tokens.js";
-import { insertToken } from "../src/db/queries.js";
+import { pool } from "../db/client.js";
+import { runMigrations } from "../db/migrate.js";
+import { hashToken } from "../auth/tokens.js";
+import { insertToken } from "../db/queries.js";
 
 function getArg(flag: string): string | undefined {
   const idx = process.argv.indexOf(flag);
